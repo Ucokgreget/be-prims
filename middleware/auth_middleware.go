@@ -42,3 +42,18 @@ func AuthMiddleware() gin.HandlerFunc {
 func Claims(c *gin.Context) *AuthClaims {
 	return c.MustGet(ClaimsKey).(*AuthClaims)
 }
+
+// RequireRole menolak request dengan role selain yang diizinkan.
+func RequireRole(role string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if Claims(c).Role != role {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"success":    false,
+				"message":    "Anda tidak memiliki akses untuk operasi ini.",
+				"error_code": "FORBIDDEN",
+			})
+			return
+		}
+		c.Next()
+	}
+}
