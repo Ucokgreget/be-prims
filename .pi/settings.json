@@ -1,0 +1,4 @@
+{
+  "defaultProvider": "omniroute",
+  "defaultModel": "tes/claude-opus-5-5"
+}
