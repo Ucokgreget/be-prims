@@ -53,7 +53,7 @@ func Login(db *gorm.DB) gin.HandlerFunc {
 		var input request.LoginRequest
 		if err := c.ShouldBindJSON(&input); err != nil {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-				"success": false,
+				"status":  "error",
 				"message": "NPP dan password wajib diisi.",
 			})
 			return
@@ -65,9 +65,8 @@ func Login(db *gorm.DB) gin.HandlerFunc {
 		}
 		if npp == "" || input.Password == "" {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-				"success":    false,
-				"message":    "NPP dan password wajib diisi.",
-				"error_code": "VALIDATION_ERROR",
+				"status":  "error",
+				"message": "NPP dan password wajib diisi.",
 			})
 			return
 		}
@@ -82,16 +81,15 @@ func Login(db *gorm.DB) gin.HandlerFunc {
 		if err != nil {
 			bcrypt.CompareHashAndPassword([]byte(dummyHash), []byte(input.Password))
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"success":    false,
-				"message":    invalidCredentialMsg,
-				"error_code": "INVALID_CREDENTIALS",
+				"status":  "error",
+				"message": invalidCredentialMsg,
 			})
 			return
 		}
 
 		if user.Status != models.StatusActive {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-				"success":    false,
+				"status":     "error",
 				"message":    "Akun Anda tidak aktif. Silakan hubungi Admin Anak Perusahaan Anda.",
 				"error_code": "ACCOUNT_INACTIVE",
 			})
@@ -100,9 +98,8 @@ func Login(db *gorm.DB) gin.HandlerFunc {
 
 		if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(input.Password)); err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"success":    false,
-				"message":    invalidCredentialMsg,
-				"error_code": "INVALID_CREDENTIALS",
+				"status":  "error",
+				"message": invalidCredentialMsg,
 			})
 			return
 		}
@@ -117,15 +114,14 @@ func Login(db *gorm.DB) gin.HandlerFunc {
 		})
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-				"success":    false,
-				"message":    "Gagal membuat token.",
-				"error_code": "INTERNAL_ERROR",
+				"status":  "error",
+				"message": "Gagal membuat token.",
 			})
 			return
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"success": true,
+			"status":  "success",
 			"message": "Login berhasil.",
 			"data": gin.H{
 				"token":      token,

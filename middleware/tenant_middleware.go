@@ -42,9 +42,8 @@ func TenantModelDB(c *gin.Context) *gorm.DB {
 		return scoped.(*gorm.DB)
 	}
 	c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-		"success":    false,
-		"message":    "Konteks tenant tidak tersedia",
-		"error_code": "INTERNAL_ERROR",
+		"status":  "error",
+		"message": "Konteks tenant tidak tersedia",
 	})
 	return nil
 }
