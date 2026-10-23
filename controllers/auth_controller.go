@@ -7,46 +7,14 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-playground/validator/v10"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
+var validate = validator.New()
+
 const invalidCredentialMsg = "NPP/No. Badge atau Password salah."
-
-// userResponse adalah data user yang aman dikirim ke FE (tanpa password hash).
-type userResponse struct {
-	ID         uint             `json:"id"`
-	NPP        string           `json:"npp"`
-	Name       string           `json:"name"`
-	Jabatan    string           `json:"jabatan"`
-	Role       string           `json:"role"`
-	Department *deptResponse    `json:"department,omitempty"`
-	Company    *companyResponse `json:"company,omitempty"`
-}
-
-type deptResponse struct {
-	ID   uint   `json:"id"`
-	Name string `json:"name"`
-}
-
-type companyResponse struct {
-	ID   uint   `json:"id"`
-	Name string `json:"name"`
-}
-
-func toUserResponse(user *models.User) userResponse {
-	res := userResponse{
-		ID: user.Id, NPP: user.NPP, Name: user.Name,
-		Jabatan: user.Jabatan, Role: user.Role,
-	}
-	if user.Department != nil {
-		res.Department = &deptResponse{ID: user.Department.Id, Name: user.Department.Name}
-	}
-	if user.Company != nil {
-		res.Company = &companyResponse{ID: user.Company.Id, Name: user.Company.Name}
-	}
-	return res
-}
 
 func Login(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -59,27 +27,17 @@ func Login(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		npp := input.NPP
-		if npp == "" {
-			npp = input.BadgeNumber // alias badge_number
-		}
-		if npp == "" || input.Password == "" {
+		if err := validate.Struct(&input); err != nil {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 				"status":  "error",
-				"message": "NPP dan password wajib diisi.",
+				"message": err.Error(),
 			})
 			return
 		}
 
 		var user models.User
-		err := db.Preload("Department").Preload("Company").
-			Where("npp = ?", npp).First(&user).Error
-
-		// ponytail: dummy bcrypt compare mencegah timing leak pada user tidak ditemukan.
-		// Angka tidak penting — hanya untuk menyamakan waktu eksekusi.
-		const dummyHash = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy" // nosemgrep: generic.secrets.security.detected-bcrypt-hash.detected-bcrypt-hash — dummy untuk timing equalization
-		if err != nil {
-			bcrypt.CompareHashAndPassword([]byte(dummyHash), []byte(input.Password))
+		if err := db.Preload("Department").Preload("Company").
+			Where("badge_number = ?", input.BadgeNumber).First(&user).Error; err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"status":  "error",
 				"message": invalidCredentialMsg,
@@ -89,9 +47,8 @@ func Login(db *gorm.DB) gin.HandlerFunc {
 
 		if user.Status != models.StatusActive {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-				"status":     "error",
-				"message":    "Akun Anda tidak aktif. Silakan hubungi Admin Anak Perusahaan Anda.",
-				"error_code": "ACCOUNT_INACTIVE",
+				"status":  "error",
+				"message": "Akun Anda tidak aktif. Silakan hubungi Admin Anak Perusahaan Anda.",
 			})
 			return
 		}
@@ -106,7 +63,7 @@ func Login(db *gorm.DB) gin.HandlerFunc {
 
 		token, expiresIn, err := middleware.GenerateToken(middleware.AuthClaims{
 			UserID:       user.Id,
-			NPP:          user.NPP,
+			BadgeNumber:  user.BadgeNumber,
 			Name:         user.Name,
 			Role:         user.Role,
 			CompanyID:    user.CompanyID,
@@ -120,6 +77,7 @@ func Login(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		user.Password = ""
 		c.JSON(http.StatusOK, gin.H{
 			"status":  "success",
 			"message": "Login berhasil.",
@@ -127,7 +85,7 @@ func Login(db *gorm.DB) gin.HandlerFunc {
 				"token":      token,
 				"token_type": "Bearer",
 				"expires_in": expiresIn,
-				"user":       toUserResponse(&user),
+				"user":       user,
 			},
 		})
 	}
@@ -143,17 +101,17 @@ func Me(db *gorm.DB) gin.HandlerFunc {
 			First(&user, claims.UserID).Error
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"success":    false,
-				"message":    "Token tidak valid atau telah kedaluwarsa",
-				"error_code": "UNAUTHORIZED",
+				"status":  "error",
+				"message": "Token tidak valid atau telah kedaluwarsa",
 			})
 			return
 		}
 
+		user.Password = ""
 		c.JSON(http.StatusOK, gin.H{
-			"success": true,
+			"status":  "success",
 			"message": "OK",
-			"data":    gin.H{"user": toUserResponse(&user)},
+			"data":    gin.H{"user": user},
 		})
 	}
 }

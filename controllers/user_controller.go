@@ -14,13 +14,13 @@ import (
 )
 
 type userListItem struct {
-	ID         uint   `json:"id"`
-	NPP        string `json:"npp"`
-	Name       string `json:"name"`
-	Jabatan    string `json:"jabatan"`
-	Role       string `json:"role"`
-	Status     string `json:"status"`
-	Department *struct {
+	ID          uint   `json:"id"`
+	BadgeNumber string `json:"badge_number"`
+	Name        string `json:"name"`
+	Jabatan     string `json:"jabatan"`
+	Role        string `json:"role"`
+	Status      string `json:"status"`
+	Department  *struct {
 		ID   uint   `json:"id"`
 		Name string `json:"name"`
 	} `json:"department"`
@@ -63,7 +63,7 @@ func ListUsers(db *gorm.DB) gin.HandlerFunc {
 		items := make([]userListItem, len(users))
 		for i, u := range users {
 			items[i].ID = u.Id
-			items[i].NPP = u.NPP
+			items[i].BadgeNumber = u.BadgeNumber
 			items[i].Name = u.Name
 			items[i].Jabatan = u.Jabatan
 			items[i].Role = u.Role
@@ -99,9 +99,8 @@ func CreateUser(db *gorm.DB) gin.HandlerFunc {
 		var input request.CreateUserRequest
 		if err := c.ShouldBindJSON(&input); err != nil {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-				"success":    false,
-				"message":    "Data tidak valid: " + err.Error(),
-				"error_code": "VALIDATION_ERROR",
+				"status":  "error",
+				"message": "Data tidak valid: " + err.Error(),
 			})
 			return
 		}
@@ -111,9 +110,8 @@ func CreateUser(db *gorm.DB) gin.HandlerFunc {
 		if err := db.Where("id = ? AND company_id = ?", input.DepartmentID, claims.CompanyID).
 			First(&dept).Error; err != nil {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-				"success":    false,
-				"message":    "Departemen tidak ditemukan.",
-				"error_code": "INVALID_DEPARTMENT",
+				"status":  "error",
+				"message": "Departemen tidak ditemukan.",
 			})
 			return
 		}
@@ -143,7 +141,7 @@ func CreateUser(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		user := models.User{
-			NPP:          input.NPP,
+			BadgeNumber:  input.NPP,
 			Name:         input.Name,
 			Jabatan:      input.Jabatan,
 			Password:     string(hash),
@@ -166,7 +164,7 @@ func CreateUser(db *gorm.DB) gin.HandlerFunc {
 			"message": "Karyawan baru berhasil didaftarkan.",
 			"data": gin.H{
 				"id":            user.Id,
-				"npp":           user.NPP,
+				"npp":           user.BadgeNumber,
 				"name":          user.Name,
 				"jabatan":       user.Jabatan,
 				"role":          user.Role,

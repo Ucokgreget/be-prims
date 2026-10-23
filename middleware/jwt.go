@@ -14,7 +14,7 @@ const TokenTTL = 8 * time.Hour
 // AuthClaims adalah payload JWT yang dibawa di setiap request terlindungi.
 type AuthClaims struct {
 	UserID       uint   `json:"user_id"`
-	NPP          string `json:"npp"`
+	BadgeNumber  string `json:"badge_number"`
 	Name         string `json:"name"`
 	Role         string `json:"role"`
 	CompanyID    uint   `json:"id_company"`

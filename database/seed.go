@@ -3,7 +3,6 @@ package database
 import (
 	"be-prims/models"
 	"fmt"
-	"os"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -11,23 +10,8 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// Seed menambahkan data demo tanpa mengubah data yang sudah ada.
-// SEED_PASSWORD wajib berisi 12–72 byte; jika kosong gunakan default dev "Demo-priv-root-123".
-// ponytail: jalankan seed secara serial; tambahkan unique index pada natural key sebelum seeding paralel.
-const defaultSeedPassword = "Demo-priv-root-123"
-
-// ResolveSeedPassword mengembalikan SEED_PASSWORD jika valid (12–72 byte),
-// atau fallback default dev jika belum diset.
-func ResolveSeedPassword() string {
-	pw := os.Getenv("SEED_PASSWORD")
-	if len(pw) >= 12 && len(pw) <= 72 {
-		return pw
-	}
-	return defaultSeedPassword
-}
-
 func Seed(db *gorm.DB) error {
-	password := ResolveSeedPassword()
+	password := "password123"
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -82,34 +66,34 @@ func Seed(db *gorm.DB) error {
 
 		users := []models.User{
 			{
-				Name: "Superadmin Demo", NPP: "1000", Password: string(hash),
+				Name: "Superadmin Demo", BadgeNumber: "1000", Password: string(hash),
 				Jabatan: "Super Administrator Sistem", Role: models.RoleSuperAdmin,
 				Status: models.StatusActive, DepartmentID: &departments[0].Id, CompanyID: companies[0].Id,
 			},
 			{
-				Name: "Admin Anper Demo", NPP: "1001", Password: string(hash),
+				Name: "Admin Anper Demo", BadgeNumber: "1001", Password: string(hash),
 				Jabatan: "Administrator Anak Perusahaan", Role: models.RoleAdminAnper,
 				Status: models.StatusActive, DepartmentID: &departments[0].Id, CompanyID: companies[0].Id,
 			},
 			{
-				Name: "Staf SDM Demo", NPP: "1002", Password: string(hash),
+				Name: "Staf SDM Demo", BadgeNumber: "1002", Password: string(hash),
 				Jabatan: "Staf SDM", Role: models.RoleKaryawan,
 				Status: models.StatusActive, DepartmentID: &departments[1].Id, CompanyID: companies[0].Id,
 			},
 			{
-				Name: "Staf Keuangan Demo", NPP: "1003", Password: string(hash),
+				Name: "Staf Keuangan Demo", BadgeNumber: "1003", Password: string(hash),
 				Jabatan: "Staf Keuangan", Role: models.RoleKaryawan,
 				Status: models.StatusActive, DepartmentID: &departments[2].Id, CompanyID: companies[0].Id,
 			},
 			{
-				Name: "Staf Operasional Demo", NPP: "2001", Password: string(hash),
+				Name: "Staf Operasional Demo", BadgeNumber: "2001", Password: string(hash),
 				Jabatan: "Staf Operasional", Role: models.RoleKaryawan,
 				Status: models.StatusActive, DepartmentID: &departments[3].Id, CompanyID: companies[1].Id,
 			},
 		}
 		for i := range users {
-			if err := tx.Omit(clause.Associations).Where(models.User{NPP: users[i].NPP}).FirstOrCreate(&users[i]).Error; err != nil {
-				return fmt.Errorf("seed user %s: %w", users[i].NPP, err)
+			if err := tx.Omit(clause.Associations).Where(models.User{BadgeNumber: users[i].BadgeNumber}).FirstOrCreate(&users[i]).Error; err != nil {
+				return fmt.Errorf("seed user %s: %w", users[i].BadgeNumber, err)
 			}
 		}
 

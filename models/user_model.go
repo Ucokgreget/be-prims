@@ -18,7 +18,7 @@ const (
 type User struct {
 	Id           uint      `json:"id" gorm:"primaryKey"`
 	Name         string    `json:"name" gorm:"size:150"`
-	NPP          string    `json:"npp" gorm:"size:50;uniqueIndex;not null"`
+	BadgeNumber  string    `json:"badge_number" gorm:"size:50;uniqueIndex;not null"`
 	Password     string    `json:"-" gorm:"size:255;not null"`
 	Jabatan      string    `json:"jabatan" gorm:"size:100"`
 	Role         string    `json:"role" gorm:"size:20;default:'KARYAWAN'"`
