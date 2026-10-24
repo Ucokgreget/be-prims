@@ -1,4 +1,4 @@
 {
-  "defaultProvider": "omniroute",
-  "defaultModel": "tes/claude-opus-5-5"
+  "defaultProvider": "agentrouter",
+  "defaultModel": "gpt-6.1-sol"
 }

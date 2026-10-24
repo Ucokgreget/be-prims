@@ -20,8 +20,10 @@ func Seed(db *gorm.DB) error {
 
 	return db.Transaction(func(tx *gorm.DB) error {
 		companies := []models.Company{
+			{Name: "PT Sri Melamin Rejeki", Code: "SMR", Status: models.StatusActive},
 			{Name: "PT Pusri Agro Lestari", Code: "PAL", Status: models.StatusActive},
-			{Name: "PT Pusri Niaga Mandiri", Code: "PNM", Status: models.StatusActive},
+			{Name: "PT Pusri Investasi Mandiri", Code: "PIM", Status: models.StatusActive},
+			{Name: "PT Danendra Niaga Pusri", Code: "DNP", Status: models.StatusActive},
 		}
 		for i := range companies {
 			if err := tx.Where(models.Company{Code: companies[i].Code}).FirstOrCreate(&companies[i]).Error; err != nil {
