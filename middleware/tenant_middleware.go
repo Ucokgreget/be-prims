@@ -1,49 +1,32 @@
 package middleware
 
 import (
-	"net/http"
-
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
-// TenantMiddleware membatasi seluruh query pada perusahaan (Anper) pemanggil.
-// Wajib dipasang SETELAH AuthMiddleware agar claims tersedia.
-func TenantMiddleware(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Set("db_tenant", TenantDB(c, db))
-		c.Next()
-	}
-}
-
-// TenantDB mengembalikan *gorm.DB dengan WHERE id_company = companyID pemanggil
-// untuk model yang memiliki kolom company_id.
+// TenantDB mengembalikan *gorm.DB dengan WHERE company_id = companyID pemanggil
+// untuk model yang memiliki kolom company_id. Wajib ada claims dari AuthMiddleware.
+// Model tanpa company_id, serta query Raw/Exec/Table, tidak di-scope.
 func TenantDB(c *gin.Context, db *gorm.DB) *gorm.DB {
 	claims := Claims(c)
-	// ponytail: NewDB: true untuk fresh Statement per query — mencegah scope leak antar-request.
-	return db.Session(&gorm.Session{NewDB: true}).Scopes(func(tx *gorm.DB) *gorm.DB {
-		if tx.Statement.Model == nil {
-			return tx
-		}
-		if err := tx.Statement.Parse(tx.Statement.Model); err != nil {
-			return tx
-		}
-		if _, ok := tx.Statement.Schema.FieldsByDBName["company_id"]; !ok {
-			return tx // ponytail: model tanpa company_id tidak di-scope; tambahkan kolomnya bila perlu tenant
-		}
-		return tx.Where("company_id = ?", claims.CompanyID)
-	})
-}
-
-// TenantModelDB adalah helper untuk query resource milik tenant di handler,
-// tanpa mengambil dari context (dipakai bersama TenantMiddleware).
-func TenantModelDB(c *gin.Context) *gorm.DB {
-	if scoped, ok := c.Get("db_tenant"); ok {
-		return scoped.(*gorm.DB)
-	}
-	c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-		"status":  "error",
-		"message": "Konteks tenant tidak tersedia",
-	})
-	return nil
+	// ponytail: Context + NewDB: query ikut cancel/timeout request; NewDB untuk fresh
+	// Statement per query — mencegah scope leak antar-request.
+	return db.Session(&gorm.Session{NewDB: true, Context: c.Request.Context()}).
+		Scopes(func(tx *gorm.DB) *gorm.DB {
+			model := tx.Statement.Model
+			if model == nil {
+				model = tx.Statement.Dest // Find(&slice)/Delete(&m) tanpa .Model() tetap ke-filter
+			}
+			if model == nil {
+				return tx
+			}
+			if err := tx.Statement.Parse(model); err != nil {
+				return tx
+			}
+			if _, ok := tx.Statement.Schema.FieldsByDBName["company_id"]; !ok {
+				return tx
+			}
+			return tx.Where("company_id = ?", claims.CompanyID)
+		})
 }
