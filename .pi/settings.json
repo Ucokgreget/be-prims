@@ -1,4 +1,4 @@
 {
-  "defaultProvider": "agentrouter",
-  "defaultModel": "gpt-6.1-sol"
+  "defaultProvider": "omniroute",
+  "defaultModel": "cbai/glm-5.3"
 }
