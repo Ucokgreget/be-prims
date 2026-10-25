@@ -10,11 +10,10 @@ type Document struct {
 	PublicationDate time.Time `json:"publication_date"`
 	IsPrivate       bool      `json:"is_private"`
 	CategoryID      uint      `json:"category_id"`
-	DepartmentID    uint      `json:"department_id"`
 	CompanyID       uint      `json:"company_id" gorm:"index"`
 
-	Category   Category   `json:"category" gorm:"foreignKey:CategoryID"`
-	Department Department `json:"department" gorm:"foreignKey:DepartmentID"`
+	Category Category `json:"category" gorm:"foreignKey:CategoryID"`
+	Company  Company  `json:"company" gorm:"foreignKey:CompanyID"`
 }
 
 type Category struct {
@@ -33,6 +32,15 @@ type Department struct {
 	CompanyID   uint      `json:"company_id" gorm:"index"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type DocumentDepartment struct {
+	Id           uint `json:"id" gorm:"primaryKey"`
+	DocumentID   uint `json:"document_id"`
+	DepartmentID uint `json:"department_id"`
+
+	Document   Document   `json:"document" gorm:"foreignKey:DocumentID"`
+	Department Department `json:"department" gorm:"foreignKey:DepartmentID"`
 }
 
 type Attachment struct {
@@ -57,6 +65,9 @@ type DocumentTag struct {
 	Id         uint `json:"id" gorm:"primaryKey"`
 	DocumentID uint `json:"document_id"`
 	TagID      uint `json:"tag_id"`
+
+	Document Document `json:"document" gorm:"foreignKey:DocumentID"`
+	Tag      Tag      `json:"tag" gorm:"foreignKey:TagID"`
 }
 
 type DocumentShared struct {

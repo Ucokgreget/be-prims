@@ -13,7 +13,7 @@ func MigrateModels() []any {
 		&models.Company{},
 		&models.Department{}, &models.Category{}, &models.Tag{},
 		&models.User{},
-		&models.Document{}, &models.Attachment{}, &models.DocumentTag{},
+		&models.Document{}, &models.Attachment{}, &models.DocumentDepartment{}, &models.DocumentTag{},
 		&models.DocumentShared{}, &models.DocumentAccessLog{},
 	}
 }
