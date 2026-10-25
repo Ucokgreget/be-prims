@@ -18,13 +18,13 @@ const (
 type User struct {
 	Id           uint      `json:"id" gorm:"primaryKey"`
 	Name         string    `json:"name" gorm:"size:150"`
-	BadgeNumber  string    `json:"badge_number" gorm:"size:50;uniqueIndex;not null"`
+	BadgeNumber  string    `json:"badge_number" gorm:"size:50;not null;uniqueIndex:uk_badge_company"`
 	Password     string    `json:"-" gorm:"size:255;not null"`
 	Jabatan      string    `json:"jabatan" gorm:"size:100"`
 	Role         string    `json:"role" gorm:"size:20;default:'KARYAWAN'"`
 	Status       string    `json:"status" gorm:"size:20;default:'active'"`
 	DepartmentID *uint     `json:"department_id"`
-	CompanyID    uint      `json:"company_id" gorm:"index"`
+	CompanyID    uint      `json:"company_id" gorm:"index;uniqueIndex:uk_badge_company"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 

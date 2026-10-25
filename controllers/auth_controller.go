@@ -37,7 +37,8 @@ func Login(db *gorm.DB) gin.HandlerFunc {
 
 		var user models.User
 		if err := db.Preload("Department").Preload("Company").
-			Where("badge_number = ?", input.BadgeNumber).First(&user).Error; err != nil {
+			Where("badge_number = ? AND company_id = ?", input.BadgeNumber, input.CompanyID).
+			First(&user).Error; err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"status":  "error",
 				"message": invalidCredentialMsg,
