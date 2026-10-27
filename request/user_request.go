@@ -1,7 +1,7 @@
 package request
 
 type CreateUserRequest struct {
-	NPP          string `json:"npp" binding:"required,max=50,alphanum"`
+	BadgeNumber  string `json:"badge_number" binding:"required,max=50,alphanum"`
 	Name         string `json:"name" binding:"required,max=150"`
 	Jabatan      string `json:"jabatan" binding:"required,max=100"`
 	DepartmentID uint   `json:"id_department" binding:"required"`

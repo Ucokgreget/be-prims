@@ -41,7 +41,7 @@ func ListUsers(db *gorm.DB) gin.HandlerFunc {
 		tx := db.Model(&models.User{}).Where("company_id = ?", claims.CompanyID)
 
 		if search != "" {
-			tx = tx.Where("name ILIKE ? OR npp ILIKE ?", "%"+search+"%", "%"+search+"%")
+			tx = tx.Where("name ILIKE ? OR badge_number ILIKE ?", "%"+search+"%", "%"+search+"%")
 		}
 		if idDept != "" {
 			tx = tx.Where("department_id = ?", idDept)
@@ -116,16 +116,15 @@ func CreateUser(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Cek duplikat NPP dalam company ini
+		// Cek duplikat badge number dalam company ini
 		var exists int64
 		db.Model(&models.User{}).
-			Where("npp = ? AND company_id = ?", input.NPP, claims.CompanyID).
+			Where("badge_number = ? AND company_id = ?", input.BadgeNumber, claims.CompanyID).
 			Count(&exists)
 		if exists > 0 {
 			c.AbortWithStatusJSON(http.StatusConflict, gin.H{
-				"success":    false,
-				"message":    "No. Badge (NPP) tersebut sudah terdaftar di sistem.",
-				"error_code": "DUPLICATE_NPP",
+				"status":  "error",
+				"message": "No. Badge tersebut sudah terdaftar di sistem.",
 			})
 			return
 		}
@@ -141,7 +140,7 @@ func CreateUser(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		user := models.User{
-			BadgeNumber:  input.NPP,
+			BadgeNumber:  input.BadgeNumber,
 			Name:         input.Name,
 			Jabatan:      input.Jabatan,
 			Password:     string(hash),
@@ -164,7 +163,7 @@ func CreateUser(db *gorm.DB) gin.HandlerFunc {
 			"message": "Karyawan baru berhasil didaftarkan.",
 			"data": gin.H{
 				"id":            user.Id,
-				"npp":           user.BadgeNumber,
+				"badge_number":  user.BadgeNumber,
 				"name":          user.Name,
 				"jabatan":       user.Jabatan,
 				"role":          user.Role,

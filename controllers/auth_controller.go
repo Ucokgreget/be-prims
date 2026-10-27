@@ -14,7 +14,7 @@ import (
 
 var validate = validator.New()
 
-const invalidCredentialMsg = "NPP/No. Badge atau Password salah."
+const invalidCredentialMsg = "No. Badge atau Password salah."
 
 func Login(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -22,7 +22,7 @@ func Login(db *gorm.DB) gin.HandlerFunc {
 		if err := c.ShouldBindJSON(&input); err != nil {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 				"status":  "error",
-				"message": "NPP dan password wajib diisi.",
+				"message": "Nomor Badge dan password wajib diisi.",
 			})
 			return
 		}
@@ -39,6 +39,16 @@ func Login(db *gorm.DB) gin.HandlerFunc {
 		if err := db.Preload("Department").Preload("Company").
 			Where("badge_number = ? AND company_id = ?", input.BadgeNumber, input.CompanyID).
 			First(&user).Error; err != nil {
+			// Cek apakah badge terdaftar di company lain sebelum menyimpulkan kredensial salah.
+			var count int64
+			db.Model(&models.User{}).Where("badge_number = ?", input.BadgeNumber).Count(&count)
+			if count > 0 {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+					"status":  "error",
+					"message": "No. Badge Anda tidak terdaftar di anak perusahaan ini. Silakan pilih anak perusahaan yang sesuai.",
+				})
+				return
+			}
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"status":  "error",
 				"message": invalidCredentialMsg,
