@@ -12,6 +12,9 @@ import (
 func SetupRouter(router *gin.Engine, db *gorm.DB) {
 	api := router.Group("/api/v1")
 
+	api.GET("/company", controllers.GetAllCompany(db))
+	api.GET("/company/:id", controllers.GetCompanyByID(db))
+
 	auth := api.Group("/auth")
 	auth.POST("/login", controllers.Login(db))
 	auth.GET("/me", middleware.AuthMiddleware(), controllers.Me(db))

@@ -67,7 +67,7 @@ func GetCategoryById(db *gorm.DB) gin.HandlerFunc {
 
 func CreateCategory(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var input request.CategoryInput
+		var input request.CreateCategoryRequest
 
 		if err := c.ShouldBindJSON(&input); err != nil {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
@@ -137,7 +137,7 @@ func UpdateCategory(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		var input request.CategoryInput
+		var input request.UpdateCategoryRequest
 		if err := c.ShouldBindJSON(&input); err != nil {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 				"status":  "error",
