@@ -20,7 +20,7 @@ var bucket string
 func Init() error {
 	endpoint := envOr("MINIO_ENDPOINT", "localhost:9000")
 	useSSL := strings.EqualFold(os.Getenv("MINIO_USE_SSL"), "true")
-	bucket := envOr("MINIO_BUCKET", "prims")
+	bucket = envOr("MINIO_BUCKET", "prims")
 
 	cl, err := minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(os.Getenv("MINIO_ACCESS_KEY"), os.Getenv("MINIO_SECRET_KEY"), ""),
@@ -49,14 +49,14 @@ func Init() error {
 func Upload(ctx context.Context, key string, fh *multipart.FileHeader) error {
 	f, err := fh.Open()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "storage: failed to open file: %w\n", err)
+		fmt.Fprintf(os.Stderr, "storage: failed to open file: %v\n", err)
 		return err
 	}
 
 	if _, err := client.PutObject(ctx, bucket, key, f, fh.Size, minio.PutObjectOptions{
 		ContentType: contentTypeFor(key, fh),
 	}); err != nil {
-		fmt.Fprintf(os.Stderr, "storage: failed to upload object: %w\n", err)
+		fmt.Fprintf(os.Stderr, "storage: failed to upload object: %v\n", err)
 		return err
 	}
 	return nil

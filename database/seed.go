@@ -105,25 +105,25 @@ func Seed(db *gorm.DB) error {
 				UUID: "00000000-0000-4000-8000-000000000001", Title: "Panduan Pengelolaan Arsip Digital",
 				Description: "Prosedur penyimpanan dan pencarian dokumen digital.", PublicationDate: publicationDate,
 				IsPrivate: false, CategoryID: categories[0].Id,
-				CompanyID: companies[0].Id,
+				CompanyID: companies[0].Id, CreatedBy: users[1].Id,
 			},
 			{
 				UUID: "00000000-0000-4000-8000-000000000002", Title: "Kebijakan Cuti Karyawan",
 				Description: "Ketentuan dan prosedur pengajuan cuti karyawan.", PublicationDate: publicationDate,
 				IsPrivate: true, CategoryID: categories[1].Id,
-				CompanyID: companies[0].Id,
+				CompanyID: companies[0].Id, CreatedBy: users[1].Id,
 			},
 			{
 				UUID: "00000000-0000-4000-8000-000000000003", Title: "Laporan Keuangan Tahunan 2025",
 				Description: "Contoh ringkasan laporan keuangan tahun 2025.", PublicationDate: publicationDate,
 				IsPrivate: true, CategoryID: categories[2].Id,
-				CompanyID: companies[0].Id,
+				CompanyID: companies[0].Id, CreatedBy: users[3].Id,
 			},
 			{
 				UUID: "00000000-0000-4000-8000-000000000004", Title: "SOP Operasional PNM",
 				Description: "Prosedur operasional harian perusahaan.", PublicationDate: publicationDate,
 				IsPrivate: false, CategoryID: categories[3].Id,
-				CompanyID: companies[1].Id,
+				CompanyID: companies[1].Id, CreatedBy: users[4].Id,
 			},
 		}
 		for i := range documents {

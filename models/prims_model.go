@@ -3,17 +3,28 @@ package models
 import "time"
 
 type Document struct {
-	Id              uint      `json:"id" gorm:"primaryKey"`
-	UUID            string    `json:"uuid" gorm:"varchar(255);unique"`
-	Title           string    `json:"title"`
-	Description     string    `json:"description"`
-	PublicationDate time.Time `json:"publication_date"`
-	IsPrivate       bool      `json:"is_private"`
-	CategoryID      uint      `json:"category_id"`
-	CompanyID       uint      `json:"company_id" gorm:"index"`
+	Id              uint       `json:"id" gorm:"primaryKey"`
+	UUID            string     `json:"uuid" gorm:"varchar(255);unique"`
+	Title           string     `json:"title"`
+	Description     string     `json:"description"`
+	DocumentNumber  string     `json:"document_number"`
+	PublicationDate time.Time  `json:"publication_date"`
+	IsPrivate       bool       `json:"is_private"`
+	AllowDownload   bool       `json:"allow_download"`
+	CategoryID      uint       `json:"category_id"`
+	CompanyID       uint       `json:"company_id" gorm:"index"`
+	CreatedBy       uint       `json:"created_by"`
+	UpdatedBy       *uint      `json:"updated_by"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       *time.Time `json:"updated_at"`
 
-	Category Category `json:"category" gorm:"foreignKey:CategoryID"`
-	Company  Company  `json:"company" gorm:"foreignKey:CompanyID"`
+	Category    Category             `json:"category" gorm:"foreignKey:CategoryID"`
+	Company     Company              `json:"company" gorm:"foreignKey:CompanyID"`
+	Creator     User                 `json:"creator" gorm:"foreignKey:CreatedBy"`
+	Updater     *User                `json:"updater" gorm:"foreignKey:UpdatedBy"`
+	Attachment  Attachment           `json:"attachment" gorm:"foreignKey:DocumentID"`
+	Tags        []DocumentTag        `json:"tags" gorm:"foreignKey:DocumentID"`
+	Departments []DocumentDepartment `json:"departments" gorm:"foreignKey:DocumentID"`
 }
 
 type Category struct {
@@ -39,7 +50,6 @@ type DocumentDepartment struct {
 	DocumentID   uint `json:"document_id"`
 	DepartmentID uint `json:"department_id"`
 
-	Document   Document   `json:"document" gorm:"foreignKey:DocumentID"`
 	Department Department `json:"department" gorm:"foreignKey:DepartmentID"`
 }
 
@@ -48,9 +58,8 @@ type Attachment struct {
 	DocumentID uint      `json:"document_id"`
 	FileName   string    `json:"file_name"`
 	FilePath   string    `json:"file_path"`
+	FileSize   int64     `json:"file_size"`
 	CreatedAt  time.Time `json:"created_at"`
-
-	Document Document `json:"document" gorm:"foreignKey:DocumentID"`
 }
 
 type Tag struct {
@@ -66,8 +75,7 @@ type DocumentTag struct {
 	DocumentID uint `json:"document_id"`
 	TagID      uint `json:"tag_id"`
 
-	Document Document `json:"document" gorm:"foreignKey:DocumentID"`
-	Tag      Tag      `json:"tag" gorm:"foreignKey:TagID"`
+	Tag Tag `json:"tag" gorm:"foreignKey:TagID"`
 }
 
 type DocumentShared struct {

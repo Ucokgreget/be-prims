@@ -34,4 +34,9 @@ func SetupRouter(router *gin.Engine, db *gorm.DB) {
 	admin.POST("/category", controllers.CreateCategory(db))
 	admin.PATCH("/category/:id", controllers.UpdateCategory(db))
 	admin.DELETE("/category/:id", controllers.DeleteCategory(db))
+
+	admin.POST("/document", controllers.CreateDocument(db))
+	admin.GET("/document", controllers.GetAllDocumentByCompany(db))
+	admin.GET("/document/:id", controllers.GetDocumentByIdByCompany(db))
+
 }

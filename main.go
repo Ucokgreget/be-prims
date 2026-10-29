@@ -3,6 +3,7 @@ package main
 import (
 	"be-prims/database"
 	"be-prims/routes"
+	"be-prims/storage"
 	"log"
 	"os"
 
@@ -29,6 +30,10 @@ func main() {
 
 	if err := database.AutoMigrate(db); err != nil {
 		log.Fatalf("auto-migration gagal: %v", err)
+	}
+
+	if err := storage.Init(); err != nil {
+		log.Fatalf("init storage gagal: %v", err)
 	}
 
 	router := gin.Default()
