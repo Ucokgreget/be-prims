@@ -39,4 +39,17 @@ func SetupRouter(router *gin.Engine, db *gorm.DB) {
 	admin.GET("/document", controllers.GetAllDocumentByCompany(db))
 	admin.GET("/document/:id", controllers.GetDocumentByIdByCompany(db))
 
+	// Endpoint tiket Manajemen Dokumen Admin (mockup hal. 6 & 7)
+	admin.GET("/documents", controllers.GetAllDocuments(db))
+
+	admin.GET("/tags", controllers.GetTags(db))
+	admin.POST("/tags", controllers.CreateTag(db))
+
+	admin.GET("/users/by-jabatan", controllers.GetUsersByJabatan(db))
+
+	// Portal publikasi karyawan internal — semua role yang login
+	portal := api.Group("/portal", middleware.AuthMiddleware())
+	portal.GET("/categories", controllers.GetPortalCategories(db))
+	portal.GET("/documents", controllers.GetPortalDocuments(db))
+
 }

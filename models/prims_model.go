@@ -31,6 +31,7 @@ type Category struct {
 	Id          uint      `json:"id" gorm:"primaryKey"`
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
+	Level       *int      `json:"level"` // null = tanpa level (SK Direksi); 1-5 = Pedoman..Catatan Mutu
 	CompanyID   uint      `json:"company_id" gorm:"index"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
