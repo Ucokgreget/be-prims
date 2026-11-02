@@ -5,7 +5,9 @@ import (
 	"be-prims/models"
 	"be-prims/request"
 	"be-prims/storage"
+	"bytes"
 	"fmt"
+	"io"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -116,7 +118,27 @@ func CreateDocument(db *gorm.DB) gin.HandlerFunc {
 		if input.Attachments.Size > 25<<20 {
 			c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{
 				"status":  "error",
-				"message": "File terlalu besar",
+				"message": "Ukuran file melebihi batas maksimal 25 MB.",
+			})
+			return
+		}
+
+		// ponytail: cek 5 magic bytes cukup untuk gate upload; jika butuh deteksi PDF korup menyeluruh, pakai parser (pdfcpu) di sini.
+		header := make([]byte, 5)
+		if f, err := input.Attachments.Open(); err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+				"status":  "error",
+				"message": "File tidak dapat dibaca",
+			})
+			return
+		} else {
+			_, _ = io.ReadFull(f, header)
+			_ = f.Close()
+		}
+		if !bytes.HasPrefix(header, []byte("%PDF-")) {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+				"status":  "error",
+				"message": "File bukan PDF yang valid",
 			})
 			return
 		}

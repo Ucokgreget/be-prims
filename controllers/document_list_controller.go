@@ -89,12 +89,10 @@ func GetAllDocuments(db *gorm.DB) gin.HandlerFunc {
 		if err := base.
 			Select("documents.id, documents.uuid, documents.title, documents.document_number, " +
 				"categories.name AS category_name, documents.publication_date, documents.is_private, " +
-				"COUNT(DISTINCT document_access_logs.user_id) AS visitors, " +
+				"(SELECT COUNT(DISTINCT l.user_id) FROM document_access_logs l WHERE l.document_id = documents.id) AS visitors, " +
 				"documents.created_at, users.name AS uploader_name").
 			Joins("LEFT JOIN categories ON categories.id = documents.category_id").
 			Joins("LEFT JOIN users ON users.id = documents.created_by").
-			Joins("LEFT JOIN document_access_logs ON document_access_logs.document_id = documents.id").
-			Group("documents.id, categories.name, users.name").
 			Order("documents.created_at DESC").
 			Offset(offset).Limit(limit).
 			Scan(&items).Error; err != nil {
