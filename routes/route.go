@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"be-prims/audit"
 	"be-prims/controllers"
 	"be-prims/middleware"
 	"be-prims/models"
@@ -9,7 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func SetupRouter(router *gin.Engine, db *gorm.DB) {
+func SetupRouter(router *gin.Engine, db *gorm.DB, accessLog *audit.Recorder) {
 	api := router.Group("/api/v1")
 
 	api.GET("/company", controllers.GetAllCompany(db))
@@ -47,10 +48,20 @@ func SetupRouter(router *gin.Engine, db *gorm.DB) {
 
 	admin.GET("/users/by-jabatan", controllers.GetUsersByJabatan(db))
 
+	// BE-08: stream biner PDF TIDAK memakai AuthMiddleware karena frontend
+	// (iframe/PDF.js) mengirim kredensial lewat ?view_token=; handler stream
+	// sendiri yang memvalidasi view token atau Bearer JWT.
+	// US-10-BE: stream mencatat satu baris VIEW ke document_access_logs secara
+	// asinkron (debounce 1 menit per dokumen+user) sebelum PDF dialirkan.
+	api.GET("/portal/documents/:uuid/stream", controllers.StreamDocumentPdf(db, accessLog))
+
 	// Portal publikasi karyawan internal — semua role yang login
 	portal := api.Group("/portal", middleware.AuthMiddleware())
 	portal.GET("/categories", controllers.GetPortalCategories(db))
 	portal.GET("/documents", controllers.GetPortalDocuments(db))
+	// Didaftarkan berdampingan dengan ":uuid": Gin memprioritaskan segmen statis,
+	// jadi "shared-with-me" tidak pernah jatuh ke handler detail.
+	portal.GET("/documents/shared-with-me", controllers.GetSharedWithMeDocuments(db))
 	portal.GET("/documents/:uuid", controllers.GetPortalDocumentDetail(db))
-
+	portal.POST("/documents/:uuid/view-session", controllers.CreateDocumentViewSession(db))
 }

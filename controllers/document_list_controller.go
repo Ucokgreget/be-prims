@@ -89,7 +89,11 @@ func GetAllDocuments(db *gorm.DB) gin.HandlerFunc {
 		if err := base.
 			Select("documents.id, documents.uuid, documents.title, documents.document_number, " +
 				"categories.name AS category_name, documents.publication_date, documents.is_private, " +
-				"(SELECT COUNT(DISTINCT l.user_id) FROM document_access_logs l WHERE l.document_id = documents.id) AS visitors, " +
+				// visitors = jumlah karyawan UNIK yang membaca (action VIEW). Tanpa
+				// filter action, user yang hanya mengunduh ikut terhitung dan angka
+				// pada mockup Admin tidak sesuai definisi metrik.
+				"(SELECT COUNT(DISTINCT l.user_id) FROM document_access_logs l " +
+				"WHERE l.document_id = documents.id AND l.action = 'VIEW') AS visitors, " +
 				"documents.created_at, users.name AS uploader_name").
 			Joins("LEFT JOIN categories ON categories.id = documents.category_id").
 			Joins("LEFT JOIN users ON users.id = documents.created_by").

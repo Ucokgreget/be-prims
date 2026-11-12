@@ -91,11 +91,22 @@ type DocumentShared struct {
 	SharedByUser User     `json:"shared_by_user" gorm:"foreignKey:SharedBy"`
 }
 
+// DocumentAccessLog: forensic audit trail aktivitas baca/unduh dokumen
+// (US-10-BE). Satu baris = satu aksi oleh satu user pada satu dokumen.
+//
+// Sengaja tanpa relasi/foreign key GORM: baris log harus tetap hidup walau
+// dokumen atau user dihapus (kebutuhan forensik).
+//
+// Index komposit (document_id, user_id, action, accessed_at) melayani dua
+// query panas sekaligus: debounce cooldown VIEW dan kalkulasi counter
+// `visitors` pada daftar dokumen admin.
 type DocumentAccessLog struct {
-	Id         uint      `json:"id" gorm:"primaryKey"`
-	DocumentID uint      `json:"document_id"`
-	UserID     uint      `json:"user_id"`
-	Action     string    `json:"action"`
-	AccessedAt time.Time `json:"accessed_at"`
-	IpAddress  string    `json:"ip_address"`
+	Id         uint `json:"id" gorm:"primaryKey"`
+	DocumentID uint `json:"document_id" gorm:"index:idx_access_log_lookup,priority:1"`
+	UserID     uint `json:"user_id" gorm:"index:idx_access_log_lookup,priority:2"`
+	// Action diberi size eksplisit: kolom nvarchar(MAX) tidak bisa dijadikan
+	// key index di SQL Server.
+	Action     string    `json:"action" gorm:"size:20;index:idx_access_log_lookup,priority:3"`
+	AccessedAt time.Time `json:"accessed_at" gorm:"index:idx_access_log_lookup,priority:4"`
+	IpAddress  string    `json:"ip_address" gorm:"size:45"` // cukup untuk IPv6 ber-zone
 }

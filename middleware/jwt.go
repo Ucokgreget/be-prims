@@ -10,6 +10,11 @@ import (
 
 const TokenTTL = 8 * time.Hour
 
+// apiAudience menandai token autentikasi API. Token sesi viewer PDF memakai
+// audience berbeda (view_token.go) sehingga token yang bocor lewat URL stream
+// tidak bisa dipakai sebagai Bearer API, dan sebaliknya.
+const apiAudience = "api"
+
 type AuthClaims struct {
 	UserID       uint   `json:"user_id"`
 	Name         string `json:"name"`
@@ -36,6 +41,7 @@ func GenerateToken(claims AuthClaims) (string, int64, error) {
 	}
 
 	claims.RegisteredClaims = jwt.RegisteredClaims{
+		Audience:  jwt.ClaimStrings{apiAudience},
 		IssuedAt:  jwt.NewNumericDate(time.Now()),
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(TokenTTL)),
 	}
@@ -59,7 +65,10 @@ func ParseToken(tokenString string) (*AuthClaims, error) {
 			return nil, errors.New("Signing method tidak valid")
 		}
 		return secret, nil
-	})
+	},
+		jwt.WithAudience(apiAudience),
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+	)
 	if err != nil {
 		return nil, err
 	}
