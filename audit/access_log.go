@@ -32,6 +32,12 @@ import (
 // ActionView adalah nilai kolom action untuk aktivitas baca dokumen.
 const ActionView = "VIEW"
 
+// ActionDownload adalah nilai kolom action untuk aktivitas unduh dokumen
+// (US-11/12-BE). Ditulis sinkron oleh handler download, bukan lewat Recorder,
+// karena setiap unduhan wajib tercatat tanpa debounce. Tidak dihitung pada
+// counter visitors (khusus VIEW).
+const ActionDownload = "DOWNLOAD"
+
 const (
 	// DefaultCooldown: aksi yang sama oleh user yang sama pada dokumen yang
 	// sama dalam rentang ini hanya dicatat sekali.

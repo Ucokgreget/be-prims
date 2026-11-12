@@ -64,4 +64,8 @@ func SetupRouter(router *gin.Engine, db *gorm.DB, accessLog *audit.Recorder) {
 	portal.GET("/documents/shared-with-me", controllers.GetSharedWithMeDocuments(db))
 	portal.GET("/documents/:uuid", controllers.GetPortalDocumentDetail(db))
 	portal.POST("/documents/:uuid/view-session", controllers.CreateDocumentViewSession(db))
+	// US-11-BE: unduh PDF berstempel watermark identitas pengunduh (in-memory).
+	// US-12-BE: setiap unduhan sukses mencatat satu baris DOWNLOAD secara
+	// sinkron (tanpa debounce recorder VIEW).
+	portal.GET("/documents/:uuid/download", controllers.DownloadDocumentPdf(db))
 }
