@@ -51,5 +51,6 @@ func SetupRouter(router *gin.Engine, db *gorm.DB) {
 	portal := api.Group("/portal", middleware.AuthMiddleware())
 	portal.GET("/categories", controllers.GetPortalCategories(db))
 	portal.GET("/documents", controllers.GetPortalDocuments(db))
+	portal.GET("/documents/:uuid", controllers.GetPortalDocumentDetail(db))
 
 }
