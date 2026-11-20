@@ -4,6 +4,7 @@ import (
 	"be-prims/middleware"
 	"be-prims/models"
 	"be-prims/request"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -17,7 +18,11 @@ func GetAllCategory(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var categories []models.Category
 
-		if err := middleware.TenantDB(c, db).Model(&models.Category{}).Find(&categories).Error; err != nil {
+		query, ok := filterCategoryLevel(c, middleware.TenantDB(c, db).Model(&models.Category{}))
+		if !ok {
+			return
+		}
+		if err := query.Find(&categories).Error; err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 				"status":  "error",
 				"message": "Ada yang salah",
@@ -107,7 +112,12 @@ func CreateCategory(db *gorm.DB) gin.HandlerFunc {
 		category := models.Category{
 			Name:        input.Name,
 			Description: input.Description,
+			Level:       input.Level,
+			Status:      models.StatusActive,
 			CompanyID:   middleware.Claims(c).CompanyID,
+		}
+		if input.Status != nil {
+			category.Status = *input.Status
 		}
 
 		if err := db.Create(&category).Error; err != nil {
@@ -146,11 +156,17 @@ func UpdateCategory(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		if err := validate.Struct(&input); err != nil {
+		if err := validate.Struct(&input); err != nil ||
+			(input.Name == nil && input.Description == nil && input.Level == nil && input.Status == nil) {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 				"status":  "error",
 				"message": "invalid request",
 			})
+			return
+		}
+		var level *int
+		if input.Level != nil && (json.Unmarshal(input.Level, &level) != nil || (level != nil && (*level < 1 || *level > 5))) {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Level harus 1–5 atau null (SK Direksi)"})
 			return
 		}
 
@@ -167,10 +183,25 @@ func UpdateCategory(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		category.Name = input.Name
-		category.Description = input.Description
+		var fields []string
+		if input.Name != nil {
+			category.Name = *input.Name
+			fields = append(fields, "Name")
+		}
+		if input.Description != nil {
+			category.Description = input.Description
+			fields = append(fields, "Description")
+		}
+		if input.Level != nil {
+			category.Level = level
+			fields = append(fields, "Level")
+		}
+		if input.Status != nil {
+			category.Status = *input.Status
+			fields = append(fields, "Status")
+		}
 		result := middleware.TenantDB(c, db).Model(&category).
-			Select("Name", "Description").Updates(&category)
+			Select(fields).Updates(&category)
 		if result.Error != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 				"status":  "error",
@@ -218,7 +249,8 @@ func DeleteCategory(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		result := middleware.TenantDB(c, db).Model(&category).Delete(&category)
+		category.Status = models.StatusInactive
+		result := middleware.TenantDB(c, db).Model(&category).Select("Status").Updates(&category)
 		if result.Error != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 				"status":  "error",
@@ -236,7 +268,24 @@ func DeleteCategory(db *gorm.DB) gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, gin.H{
 			"status":  "success",
-			"message": "Kategori berhasil dihapus",
+			"message": "Kategori berhasil dinonaktifkan",
 		})
 	}
+}
+
+func filterCategoryLevel(c *gin.Context, query *gorm.DB) (*gorm.DB, bool) {
+	values := c.QueryArray("level")
+	if len(values) == 0 {
+		return query, true
+	}
+	if len(values) == 1 {
+		if values[0] == "sk_direksi" {
+			return query.Where("categories.level IS NULL"), true
+		}
+		if level, err := strconv.Atoi(values[0]); err == nil && level >= 1 && level <= 5 {
+			return query.Where("categories.level = ?", level), true
+		}
+	}
+	c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Filter level harus 1–5 atau sk_direksi"})
+	return nil, false
 }

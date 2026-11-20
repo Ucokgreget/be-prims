@@ -30,6 +30,7 @@ import (
 const maxDownloadBytes = 32 << 20
 
 const defaultPublicURL = "https://prims.pusri.co.id"
+const downloadNotFoundMessage = "Data tidak ditemukan"
 
 // downloadLogTimeout membatasi INSERT log DOWNLOAD agar DB yang lambat tidak
 // menahan pengiriman berkas tanpa batas.
@@ -54,12 +55,16 @@ var stampPdf = pdfstamp.Stamp
 func DownloadDocumentPdf(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims := middleware.Claims(c)
+		if claims.Role != models.RoleAdminAnper && claims.Role != models.RoleKaryawan {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"status": "error", "message": "Tidak diizinkan untuk mengunduh dokumen"})
+			return
+		}
 
 		document, ok := authorizePortalDocument(c, db, viewerIdentity{
 			UserID:    claims.UserID,
 			Role:      claims.Role,
 			CompanyID: claims.CompanyID,
-		})
+		}, downloadNotFoundMessage)
 		if !ok {
 			return
 		}
@@ -76,7 +81,7 @@ func DownloadDocumentPdf(db *gorm.DB) gin.HandlerFunc {
 		if document.Attachment.Id == 0 || key == "" {
 			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{
 				"status":  "error",
-				"message": "Dokumen belum memiliki berkas PDF",
+				"message": downloadNotFoundMessage,
 			})
 			return
 		}
@@ -98,7 +103,7 @@ func DownloadDocumentPdf(db *gorm.DB) gin.HandlerFunc {
 
 		// Satu titik waktu untuk stempel DAN accessed_at log (US-12-BE): jam di
 		// PDF yang bocor bisa dicocokkan persis dengan baris audit.
-		downloadedAt := time.Now()
+		downloadedAt := time.Now().UTC().Truncate(time.Second)
 
 		var stamped bytes.Buffer
 		stamped.Grow(len(original) + 16<<10)
@@ -119,13 +124,17 @@ func DownloadDocumentPdf(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		recordDownload(ctx, db, models.DocumentAccessLog{
+		if err := recordDownload(ctx, db, models.DocumentAccessLog{
 			DocumentID: document.Id,
 			UserID:     claims.UserID,
 			Action:     audit.ActionDownload,
 			AccessedAt: downloadedAt,
 			IpAddress:  c.ClientIP(),
-		})
+		}); err != nil {
+			log.Printf("audit: gagal mencatat log download untuk doc_id %d user %d: %v", document.Id, claims.UserID, err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "Gagal mencatat audit unduhan"})
+			return
+		}
 
 		header := c.Writer.Header()
 		header.Set("Content-Type", "application/pdf")
@@ -155,17 +164,15 @@ func DownloadDocumentPdf(db *gorm.DB) gin.HandlerFunc {
 // tidak pernah sampai ke sini. Context diturunkan dari request, sehingga bila
 // klien membatalkan sebelum titik ini INSERT ikut batal dan tidak ada baris.
 //
-// Kegagalan DB hanya di-log: pengiriman berkas tidak boleh gagal karena audit.
-func recordDownload(ctx context.Context, db *gorm.DB, entry models.DocumentAccessLog) {
+// Gagal mencatat berarti berkas tidak dikirim. Log membuktikan server
+// mengizinkan pengiriman, bukan bahwa klien menyimpan seluruh berkas.
+func recordDownload(ctx context.Context, db *gorm.DB, entry models.DocumentAccessLog) error {
 	if entry.IpAddress == "" {
 		entry.IpAddress = ipUnknown
 	}
 	ctx, cancel := context.WithTimeout(ctx, downloadLogTimeout)
 	defer cancel()
-	if err := db.WithContext(ctx).Create(&entry).Error; err != nil {
-		log.Printf("audit: gagal mencatat log download untuk doc_id %d user %d: %v",
-			entry.DocumentID, entry.UserID, err)
-	}
+	return db.WithContext(ctx).Create(&entry).Error
 }
 
 // readObject membaca seluruh object MinIO ke memori. Meng-abort response dan
@@ -173,7 +180,7 @@ func recordDownload(ctx context.Context, db *gorm.DB, entry models.DocumentAcces
 func readObject(c *gin.Context, key string) ([]byte, error) {
 	stream, err := openObject(c.Request.Context(), key)
 	if err != nil {
-		internalError(c)
+		downloadObjectError(c, err)
 		return nil, err
 	}
 	defer stream.Close()
@@ -181,14 +188,7 @@ func readObject(c *gin.Context, key string) ([]byte, error) {
 	// GetObject MinIO bersifat lazy: NoSuchKey baru muncul saat Read.
 	data, err := io.ReadAll(io.LimitReader(stream, maxDownloadBytes+1))
 	if err != nil {
-		if isObjectNotFound(err) {
-			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{
-				"status":  "error",
-				"message": "Berkas dokumen tidak ditemukan",
-			})
-			return nil, err
-		}
-		internalError(c)
+		downloadObjectError(c, err)
 		return nil, err
 	}
 	if len(data) > maxDownloadBytes {
@@ -196,6 +196,14 @@ func readObject(c *gin.Context, key string) ([]byte, error) {
 		return nil, fmt.Errorf("object %s melebihi %d byte", key, maxDownloadBytes)
 	}
 	return data, nil
+}
+
+func downloadObjectError(c *gin.Context, err error) {
+	if isObjectNotFound(err) {
+		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"status": "error", "message": downloadNotFoundMessage})
+		return
+	}
+	internalError(c)
 }
 
 func internalError(c *gin.Context) {

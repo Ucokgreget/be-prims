@@ -45,13 +45,13 @@ func Seed(db *gorm.DB) error {
 
 		lv1, lv2, lv3, lv4, lv5 := 1, 2, 3, 4, 5
 		categories := []models.Category{
-			{Name: "Surat Keputusan Direksi", Description: "Surat keputusan resmi direksi.", CompanyID: companies[0].Id},
-			{Name: "Pedoman", Description: "Dokumen pedoman level 1.", Level: &lv1, CompanyID: companies[0].Id},
-			{Name: "Prosedur", Description: "Dokumen prosedur level 2.", Level: &lv2, CompanyID: companies[0].Id},
-			{Name: "Juklak", Description: "Petunjuk pelaksanaan level 3.", Level: &lv3, CompanyID: companies[0].Id},
-			{Name: "Instruksi Kerja", Description: "Instruksi kerja level 4.", Level: &lv4, CompanyID: companies[0].Id},
-			{Name: "Catatan Mutu", Description: "Catatan mutu level 5.", Level: &lv5, CompanyID: companies[0].Id},
-			{Name: "SOP", Description: "Standar operasional prosedur perusahaan.", CompanyID: companies[1].Id},
+			{Name: "Surat Keputusan Direksi", Description: new("Surat keputusan resmi direksi."), CompanyID: companies[0].Id},
+			{Name: "Pedoman", Description: new("Dokumen pedoman level 1."), Level: &lv1, CompanyID: companies[0].Id},
+			{Name: "Prosedur", Description: new("Dokumen prosedur level 2."), Level: &lv2, CompanyID: companies[0].Id},
+			{Name: "Juklak", Description: new("Petunjuk pelaksanaan level 3."), Level: &lv3, CompanyID: companies[0].Id},
+			{Name: "Instruksi Kerja", Description: new("Instruksi kerja level 4."), Level: &lv4, CompanyID: companies[0].Id},
+			{Name: "Catatan Mutu", Description: new("Catatan mutu level 5."), Level: &lv5, CompanyID: companies[0].Id},
+			{Name: "SOP", Description: new("Standar operasional prosedur perusahaan."), CompanyID: companies[1].Id},
 		}
 		for i := range categories {
 			if err := tx.Where(models.Category{Name: categories[i].Name, CompanyID: categories[i].CompanyID}).FirstOrCreate(&categories[i]).Error; err != nil {

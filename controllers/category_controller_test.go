@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -29,6 +30,16 @@ func TestCategoryTenantIsolation(t *testing.T) {
 		{"detail", "GET", "/category/3", "", GetCategoryById, nil, 200, 1, 0},
 		{"create", "POST", "/category", body, CreateCategory, gorm.ErrRecordNotFound, 200, 1, 1},
 		{"update", "PATCH", "/category/3", body, UpdateCategory, nil, 200, 1, 1},
+		{"create-without-description", "POST", "/category", `{"name":"Kategori"}`, CreateCategory, gorm.ErrRecordNotFound, 200, 1, 1},
+		{"update-without-description", "PATCH", "/category/3", `{"name":"Kategori Baru"}`, UpdateCategory, nil, 200, 1, 1},
+		{"update-empty-description", "PATCH", "/category/3", `{"name":"Kategori","description":""}`, UpdateCategory, nil, 200, 1, 1},
+		{"create-inactive-level", "POST", "/category", `{"name":"Kategori","level":5,"status":"inactive"}`, CreateCategory, gorm.ErrRecordNotFound, 200, 1, 1},
+		{"create-invalid-level", "POST", "/category", `{"name":"Kategori","level":0}`, CreateCategory, nil, 400, 0, 0},
+		{"update-sk-direksi", "PATCH", "/category/3", `{"level":null}`, UpdateCategory, nil, 200, 1, 1},
+		{"update-reactivate", "PATCH", "/category/3", `{"status":"active"}`, UpdateCategory, nil, 200, 1, 1},
+		{"update-invalid-level", "PATCH", "/category/3", `{"level":6}`, UpdateCategory, nil, 400, 0, 0},
+		{"update-invalid-status", "PATCH", "/category/3", `{"status":"disabled"}`, UpdateCategory, nil, 400, 0, 0},
+		{"update-invalid-name", "PATCH", "/category/3", `{"name":"","status":"active"}`, UpdateCategory, nil, 400, 0, 0},
 		{"delete", "DELETE", "/category/3", "", DeleteCategory, nil, 200, 1, 1},
 		{"duplicate", "POST", "/category", body, CreateCategory, nil, 409, 1, 0},
 		{"create-query-error", "POST", "/category", body, CreateCategory, errors.New("database unavailable"), 500, 1, 0},
@@ -80,7 +91,10 @@ func TestCategoryTenantIsolation(t *testing.T) {
 					tx.AddError(tc.queryErr)
 					return
 				}
-				category := models.Category{Id: 3, Name: "Kategori", Description: "Deskripsi", CompanyID: companyID}
+				category := models.Category{Id: 3, Name: "Kategori", Description: new("Deskripsi"), Level: new(2), Status: models.StatusInactive, CompanyID: companyID}
+				if tc.name == "delete" {
+					category.Status = models.StatusActive
+				}
 				switch dest := tx.Statement.Dest.(type) {
 				case *models.Category:
 					*dest = category
@@ -94,8 +108,41 @@ func TestCategoryTenantIsolation(t *testing.T) {
 				if !strings.HasPrefix(tx.Statement.SQL.String(), "INSERT") {
 					assertTenant(tx)
 				}
-				if got := tx.Statement.Dest.(*models.Category).CompanyID; got != companyID {
-					t.Fatalf("company_id = %d, want JWT company %d", got, companyID)
+				category := tx.Statement.Dest.(*models.Category)
+				if category.CompanyID != companyID {
+					t.Fatalf("company_id = %d, want JWT company %d", category.CompanyID, companyID)
+				}
+				if tc.name == "create-without-description" && category.Description != nil {
+					t.Fatal("omitted description must be nil on create")
+				}
+				if tc.name == "update-without-description" && (category.Description == nil || *category.Description != "Deskripsi" || strings.Contains(tx.Statement.SQL.String(), `"description"`)) {
+					t.Fatal("omitted description must not be updated")
+				}
+				if tc.name == "update-empty-description" && (category.Description == nil || *category.Description != "" || !strings.Contains(tx.Statement.SQL.String(), `"description"`)) {
+					t.Fatal("empty description must be written")
+				}
+				sql := tx.Statement.SQL.String()
+				switch tc.name {
+				case "create-without-description":
+					if category.Status != models.StatusActive || category.Level != nil {
+						t.Fatal("create must default to active and SK Direksi")
+					}
+				case "create-inactive-level":
+					if category.Status != models.StatusInactive || category.Level == nil || *category.Level != 5 {
+						t.Fatal("create must write supplied status and level")
+					}
+				case "update-sk-direksi":
+					if category.Level != nil || !strings.Contains(sql, `"level"=`) {
+						t.Fatal("explicit null must reset level")
+					}
+				case "update-reactivate":
+					if category.Status != models.StatusActive || !strings.Contains(sql, `"status"=`) || strings.Contains(sql, `"level"=`) {
+						t.Fatal("reactivation must only change status")
+					}
+				case "delete":
+					if category.Status != models.StatusInactive || !strings.HasPrefix(sql, "UPDATE ") || !strings.Contains(sql, `"status"=`) {
+						t.Fatal("DELETE must deactivate with an UPDATE, not delete")
+					}
 				}
 				tx.RowsAffected = 1
 			}
@@ -103,7 +150,6 @@ func TestCategoryTenantIsolation(t *testing.T) {
 				db.Callback().Query().After("gorm:query").Register("test:query", query),
 				db.Callback().Create().After("gorm:create").Register("test:write", write),
 				db.Callback().Update().After("gorm:update").Register("test:write", write),
-				db.Callback().Delete().After("gorm:delete").Register("test:write", write),
 			} {
 				if err != nil {
 					t.Fatal(err)
@@ -130,6 +176,59 @@ func TestCategoryTenantIsolation(t *testing.T) {
 					t.Fatalf("tenant %d: status/queries/writes = %d/%d/%d, want %d/%d/%d; body=%s",
 						id, response.Code, queries, writes, tc.status, tc.queries, tc.writes, response.Body.String())
 				}
+			}
+		})
+	}
+}
+
+func TestPortalCategoryLifecycleFilters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("JWT_SECRET", "category-test-only-secret")
+	token, _, err := middleware.GenerateToken(middleware.AuthClaims{CompanyID: 11, Role: models.RoleKaryawan})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		path, predicate string
+		wantQueries     int
+	}{
+		{"/portal/categories?level=sk_direksi", "categories.level IS NULL", 1},
+		{"/portal/documents?level=3&q=arsip", "categories.level = @p", 2},
+		{"/portal/documents", "documents.is_private = @p", 2},
+		{"/portal/documents?level=6", "", 0},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			db, _ := sharedWithMeTestDB(t)
+			queries := 0
+			if err := db.Callback().Query().After("gorm:query").Register("test:category-filters", func(tx *gorm.DB) {
+				queries++
+				sql, vars := tx.Statement.SQL.String(), tx.Statement.Vars
+				if !strings.Contains(sql, tc.predicate) || !strings.Contains(sql, "categories.status = @p") ||
+					!slices.Contains(vars, any(models.StatusActive)) || !slices.Contains(vars, any(uint(11))) {
+					t.Fatalf("missing level, tenant or active filter: %s; vars=%v", sql, vars)
+				}
+				if strings.Contains(tc.path, "level=3") && (!slices.Contains(vars, any(3)) ||
+					!strings.Contains(sql, "categories.company_id = documents.company_id") ||
+					!strings.Contains(sql, "(documents.title LIKE")) {
+					t.Fatalf("missing bound level, tenant join or grouped search: %s; vars=%v", sql, vars)
+				}
+			}); err != nil {
+				t.Fatal(err)
+			}
+			router := gin.New()
+			router.Use(middleware.AuthMiddleware())
+			router.GET("/portal/categories", GetPortalCategories(db))
+			router.GET("/portal/documents", GetPortalDocuments(db))
+			req := httptest.NewRequest("GET", tc.path, nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, req)
+			wantStatus := 200
+			if tc.wantQueries == 0 {
+				wantStatus = 400
+			}
+			if response.Code != wantStatus || queries != tc.wantQueries {
+				t.Fatalf("status/queries = %d/%d, want %d/%d; body=%s", response.Code, queries, wantStatus, tc.wantQueries, response.Body)
 			}
 		})
 	}

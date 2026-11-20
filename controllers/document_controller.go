@@ -3,14 +3,9 @@ package controllers
 import (
 	"be-prims/middleware"
 	"be-prims/models"
-	"be-prims/request"
 	"be-prims/storage"
-	"bytes"
 	"fmt"
-	"io"
 	"net/http"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -79,67 +74,11 @@ func CreateDocument(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims := middleware.Claims(c)
 
-		var input request.CreateDocumentRequest
-
-		if err := c.ShouldBind(&input); err != nil {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-				"status":  "error",
-				"message": "Input tidak valid",
-			})
-			return
+		input, ok := bindDocumentUpload(c)
+		if form := c.Request.MultipartForm; form != nil {
+			defer form.RemoveAll()
 		}
-
-		if len(input.SharedTo) == 1 && input.SharedTo[0] == 0 {
-			input.SharedTo = nil
-		}
-
-		if err := validate.Struct(&input); err != nil {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-				"status":  "error",
-				"message": "Input tidak valid",
-			})
-			return
-		}
-
-		if !input.IsPrivate {
-			input.SharedTo = nil
-		}
-
-		ext := strings.ToLower(filepath.Ext(input.Attachments.Filename))
-
-		if ext != ".pdf" {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-				"status":  "error",
-				"message": "Harus pdf",
-			})
-			return
-		}
-
-		if input.Attachments.Size > 25<<20 {
-			c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{
-				"status":  "error",
-				"message": "Ukuran file melebihi batas maksimal 25 MB.",
-			})
-			return
-		}
-
-		// ponytail: cek 5 magic bytes cukup untuk gate upload; jika butuh deteksi PDF korup menyeluruh, pakai parser (pdfcpu) di sini.
-		header := make([]byte, 5)
-		if f, err := input.Attachments.Open(); err != nil {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-				"status":  "error",
-				"message": "File tidak dapat dibaca",
-			})
-			return
-		} else {
-			_, _ = io.ReadFull(f, header)
-			_ = f.Close()
-		}
-		if !bytes.HasPrefix(header, []byte("%PDF-")) {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-				"status":  "error",
-				"message": "File bukan PDF yang valid",
-			})
+		if !ok {
 			return
 		}
 
@@ -155,10 +94,8 @@ func CreateDocument(db *gorm.DB) gin.HandlerFunc {
 				return
 			}
 			if count != int64(len(input.SharedTo)) {
-				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-					"status":  "error",
-					"message": "Pengguna tidak ditemukan",
-				})
+				documentUploadError(c, http.StatusBadRequest, "invalid_fields", "Penerima akses tidak valid.",
+					gin.H{"shared_to": "Gunakan ID pengguna yang berbeda dan terdaftar di perusahaan Anda."})
 				return
 			}
 
@@ -180,7 +117,7 @@ func CreateDocument(db *gorm.DB) gin.HandlerFunc {
 			CreatedAt:       now,
 		}
 
-		objectKey := fmt.Sprintf("documents/%s_%d%s", document.UUID, now.Unix(), ext)
+		objectKey := fmt.Sprintf("documents/%s_%d.pdf", document.UUID, now.Unix())
 
 		if err := storage.Upload(c.Request.Context(), objectKey, input.Attachments); err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{

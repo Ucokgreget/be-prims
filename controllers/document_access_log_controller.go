@@ -58,12 +58,12 @@ type accessLogData struct {
 
 // readersSQL: karyawan unik yang punya log VIEW pada dokumen ini.
 //
-// INNER JOIN users: log user yang sudah dihapus tetap tersimpan di tabel
-// (kebutuhan forensik), tapi tidak bisa ditampilkan tanpa identitas.
+// Log tetap tersimpan jika user dihapus atau pindah tenant, tetapi identitas
+// hanya ditampilkan untuk user yang masih berada di tenant dokumen.
 const readersSQL = `
 SELECT DISTINCT u.id, u.name, u.badge_number, u.jabatan
 FROM document_access_logs l
-INNER JOIN users u ON u.id = l.user_id
+INNER JOIN users u ON u.id = l.user_id AND u.company_id = ?
 WHERE l.document_id = ? AND l.action = ?
 ORDER BY u.name ASC`
 
@@ -92,7 +92,7 @@ FROM (
     WHERE l.document_id = ? AND l.action IN (?, ?)
     GROUP BY l.user_id
 ) agg
-INNER JOIN users u ON u.id = agg.user_id
+INNER JOIN users u ON u.id = agg.user_id AND u.company_id = ?
 OUTER APPLY (
     SELECT TOP 1 l2.ip_address
     FROM document_access_logs l2
@@ -104,20 +104,29 @@ ORDER BY agg.last_accessed_at DESC, u.id ASC`
 // GetDocumentAccessLogs menyajikan data panel "Views" dan "Views & Downloads"
 // di halaman detail dokumen admin (mockup hal. 6 & 7).
 //
-// Role ADMIN_ANPER ditegakkan di route (RequireRole → 403). Dokumen dicari
-// dengan id + company_id dari JWT: dokumen anper lain, id tidak valid, atau
-// tidak ada sama-sama 404 sehingga keberadaan dokumen tenant lain tidak bocor.
+// Hanya ADMIN_ANPER yang boleh mengakses. ID tidak valid, dokumen tenant lain,
+// dan dokumen yang tidak ada sama-sama 404.
 func GetDocumentAccessLogs(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
 		claims := middleware.Claims(c)
+		if claims.Role != models.RoleAdminAnper {
+			message := "Tidak diizinkan untuk melakukan action ini"
+			if claims.Role == models.RoleKaryawan {
+				message = "Role Karyawan dilarang mengakses resource ini."
+			}
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"status": "error", "message": message})
+			return
+		}
 
-		id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-		if err != nil || id == 0 {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 63)
+		if err != nil || id == 0 || claims.CompanyID == 0 {
 			documentNotFound(c)
 			return
 		}
 
 		var document models.Document
+		db := db.WithContext(c.Request.Context())
 		err = db.
 			Select("id", "uuid", "document_number", "title").
 			Where("id = ? AND company_id = ?", id, claims.CompanyID).
@@ -132,7 +141,7 @@ func GetDocumentAccessLogs(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		readers := make([]accessLogReader, 0)
-		if err := db.Raw(readersSQL, document.Id, audit.ActionView).Find(&readers).Error; err != nil {
+		if err := db.Raw(readersSQL, claims.CompanyID, document.Id, audit.ActionView).Find(&readers).Error; err != nil {
 			internalError(c)
 			return
 		}
@@ -141,7 +150,7 @@ func GetDocumentAccessLogs(db *gorm.DB) gin.HandlerFunc {
 		if err := db.Raw(accessLogsSQL,
 			audit.ActionView, audit.ActionDownload,
 			document.Id, audit.ActionView, audit.ActionDownload,
-			document.Id, audit.ActionView, audit.ActionDownload,
+			claims.CompanyID, document.Id, audit.ActionView, audit.ActionDownload,
 		).Find(&rows).Error; err != nil {
 			internalError(c)
 			return

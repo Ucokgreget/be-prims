@@ -247,8 +247,8 @@ func TestDownloadDocumentPdfObjectMissing(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
 	}
-	if len(*logs) != 0 {
-		t.Fatalf("berkas hilang tidak boleh tercatat: %+v", *logs)
+	if errorMessage(t, rec) != "Data tidak ditemukan" || len(*logs) != 0 {
+		t.Fatalf("404 berkas hilang salah: body=%s logs=%+v", rec.Body, *logs)
 	}
 }
 
@@ -275,8 +275,8 @@ func TestDownloadDocumentPdfLogsEveryDownload(t *testing.T) {
 	}
 }
 
-// Kegagalan INSERT audit tidak boleh menggagalkan pengiriman berkas.
-func TestDownloadDocumentPdfLogFailureStillSendsFile(t *testing.T) {
+// PDF hanya boleh dikirim setelah INSERT audit berhasil.
+func TestDownloadDocumentPdfLogFailureBlocksFile(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("JWT_SECRET", "download-test-only-secret")
 
@@ -288,8 +288,9 @@ func TestDownloadDocumentPdfLogFailureStillSendsFile(t *testing.T) {
 	captureAccessLogs(t, db, errors.New("db down"))
 
 	rec := doDownload(t, newDownloadRouter(t, db), uuid, models.RoleKaryawan)
-	if rec.Code != http.StatusOK || rec.Body.String() != stampedFixture {
-		t.Fatalf("status = %d body=%q, want 200 + berkas", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusInternalServerError || rec.Header().Get("Content-Disposition") != "" ||
+		errorMessage(t, rec) != "Gagal mencatat audit unduhan" {
+		t.Fatalf("status = %d body=%q, want 500 tanpa berkas", rec.Code, rec.Body.String())
 	}
 }
 
@@ -329,8 +330,8 @@ func TestDownloadDocumentPdfCrossTenantNotLogged(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rec.Code)
 	}
-	if len(*logs) != 0 {
-		t.Fatalf("akses lintas anper tidak boleh tercatat: %+v", *logs)
+	if errorMessage(t, rec) != "Data tidak ditemukan" || len(*logs) != 0 {
+		t.Fatalf("404 lintas anper salah: body=%s logs=%+v", rec.Body, *logs)
 	}
 }
 

@@ -52,6 +52,7 @@ func Upload(ctx context.Context, key string, fh *multipart.FileHeader) error {
 		fmt.Fprintf(os.Stderr, "storage: failed to open file: %v\n", err)
 		return err
 	}
+	defer f.Close()
 
 	if _, err := client.PutObject(ctx, bucket, key, f, fh.Size, minio.PutObjectOptions{
 		ContentType: contentTypeFor(key, fh),

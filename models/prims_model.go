@@ -30,8 +30,9 @@ type Document struct {
 type Category struct {
 	Id          uint      `json:"id" gorm:"primaryKey"`
 	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Level       *int      `json:"level"` // null = tanpa level (SK Direksi); 1-5 = Pedoman..Catatan Mutu
+	Description *string   `json:"description"`
+	Level       *int      `json:"level"` // null = SK Direksi; 1-5 = Pedoman..Catatan Mutu
+	Status      string    `json:"status" gorm:"size:20;not null;default:'active'"`
 	CompanyID   uint      `json:"company_id" gorm:"index"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`

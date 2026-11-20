@@ -200,6 +200,9 @@ func TestCreateDocumentViewSession(t *testing.T) {
 						AccessTime  string `json:"access_time"`
 						ClientIP    string `json:"client_ip"`
 					} `json:"watermark_meta"`
+					Overlay struct {
+						Text string `json:"text"`
+					} `json:"watermark"`
 				} `json:"data"`
 			}
 			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
@@ -228,6 +231,9 @@ func TestCreateDocumentViewSession(t *testing.T) {
 			}
 			if wm.ClientIP == "" {
 				t.Fatal("client_ip kosong")
+			}
+			if want := strings.Join([]string{wm.CompanyName, wm.BadgeNumber, wm.UserName, wm.AccessTime, wm.ClientIP}, " • "); body.Data.Overlay.Text != want {
+				t.Fatalf("watermark.text = %q, want %q", body.Data.Overlay.Text, want)
 			}
 			if _, err := time.Parse("2006-01-02 15:04:05 MST", wm.AccessTime); err != nil {
 				t.Fatalf("access_time %q bukan format WIB: %v", wm.AccessTime, err)

@@ -43,7 +43,8 @@ func SetupRouter(router *gin.Engine, db *gorm.DB, accessLog *audit.Recorder) {
 	// Endpoint tiket Manajemen Dokumen Admin (mockup hal. 6 & 7)
 	admin.GET("/documents", controllers.GetAllDocuments(db))
 	// US-13-BE: data panel "Views" & "Views & Downloads" (mockup hal. 6 & 7).
-	admin.GET("/documents/:id/access-logs", controllers.GetDocumentAccessLogs(db))
+	api.GET("/documents/:id/access-logs", middleware.AuthMiddleware(), controllers.GetDocumentAccessLogs(db))
+	admin.GET("/admin/audit-logs", controllers.GetCompanyAuditLogs(db))
 
 	admin.GET("/tags", controllers.GetTags(db))
 	admin.POST("/tags", controllers.CreateTag(db))

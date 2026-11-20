@@ -15,29 +15,33 @@ import (
 
 // PortalCategoryItem: kategori + jumlah dokumen aktif (publik) di kategori itu.
 type PortalCategoryItem struct {
-	Id              uint   `json:"id"`
-	Name            string `json:"name"`
-	Description     string `json:"description"`
-	Level           *int   `json:"level"` // null = tanpa level (SK Direksi)
-	CompanyID       uint   `json:"company_id"`
-	ActiveDocuments int64  `json:"active_documents"`
+	Id              uint    `json:"id"`
+	Name            string  `json:"name"`
+	Description     *string `json:"description"`
+	Level           *int    `json:"level"` // null = SK Direksi
+	Status          string  `json:"status"`
+	CompanyID       uint    `json:"company_id"`
+	ActiveDocuments int64   `json:"active_documents"`
 }
 
-// GetPortalCategories: master kategori milik company + levelnya,
-// beserta jumlah dokumen aktif (is_private = false) per kategori.
+// GetPortalCategories menampilkan kategori aktif dan jumlah dokumen publiknya.
 func GetPortalCategories(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims := middleware.Claims(c)
 
-		var items []PortalCategoryItem
-		if err := db.Model(&models.Category{}).
-			Select("categories.id, categories.name, categories.description, categories.level, categories.company_id, "+
+		query, ok := filterCategoryLevel(c, db.WithContext(c.Request.Context()).Model(&models.Category{}).
+			Where("categories.company_id = ? AND categories.status = ?", claims.CompanyID, models.StatusActive))
+		if !ok {
+			return
+		}
+		items := []PortalCategoryItem{}
+		if err := query.
+			Select("categories.id, categories.name, categories.description, categories.level, categories.status, categories.company_id, "+
 				"COUNT(documents.id) AS active_documents").
-			Joins("LEFT JOIN documents ON documents.category_id = categories.id AND documents.is_private = ?", false).
-			Where("categories.company_id = ?", claims.CompanyID).
-			Group("categories.id").
+			Joins("LEFT JOIN documents ON documents.category_id = categories.id AND documents.company_id = categories.company_id AND documents.is_private = ?", false).
+			Group("categories.id, categories.name, categories.description, categories.level, categories.status, categories.company_id").
 			Order("categories.level ASC, categories.name ASC").
-			Scan(&items).Error; err != nil {
+			Find(&items).Error; err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 				"status":  "error",
 				"message": "Ada yang salah",
@@ -70,8 +74,8 @@ type PortalDocumentMeta struct {
 	Total int64 `json:"total"`
 }
 
-// GetPortalDocuments: katalog dokumen publik (is_private = false WAJIB),
-// filter q / category_id / tag_id (multi, OR) / department_id / year.
+// GetPortalDocuments menampilkan dokumen publik dari kategori aktif.
+// Filter: q / category_id / tag_id (multi, OR) / department_id / year / level.
 func GetPortalDocuments(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims := middleware.Claims(c)
@@ -88,8 +92,12 @@ func GetPortalDocuments(db *gorm.DB) gin.HandlerFunc {
 			limit = 10
 		}
 
-		base := db.Model(&models.Document{}).
-			Where("documents.company_id = ? AND documents.is_private = ?", claims.CompanyID, false)
+		base, ok := filterCategoryLevel(c, db.WithContext(c.Request.Context()).Model(&models.Document{}).
+			Joins("JOIN categories ON categories.id = documents.category_id AND categories.company_id = documents.company_id").
+			Where("documents.company_id = ? AND documents.is_private = ? AND categories.status = ?", claims.CompanyID, false, models.StatusActive))
+		if !ok {
+			return
+		}
 
 		if q := c.Query("q"); q != "" {
 			like := "%" + q + "%"
@@ -122,14 +130,13 @@ func GetPortalDocuments(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		var items []PortalDocumentItem
+		items := []PortalDocumentItem{}
 		if err := base.
 			Select("documents.id, documents.uuid, documents.title, documents.document_number, " +
 				"documents.publication_date, categories.name AS category_name").
-			Joins("LEFT JOIN categories ON categories.id = documents.category_id").
 			Order("documents.publication_date DESC").
 			Offset((page - 1) * limit).Limit(limit).
-			Scan(&items).Error; err != nil {
+			Find(&items).Error; err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 				"status":  "error",
 				"message": "Ada yang salah",

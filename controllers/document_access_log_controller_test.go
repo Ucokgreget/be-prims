@@ -77,14 +77,13 @@ func newAccessLogTestDB(t *testing.T, fx accessLogFixture) (*gorm.DB, *capturedA
 
 func newAccessLogRouter(db *gorm.DB) *gin.Engine {
 	router := gin.New()
-	router.GET("/documents/:id/access-logs",
-		middleware.AuthMiddleware(), middleware.RequireRole(models.RoleAdminAnper), GetDocumentAccessLogs(db))
+	router.GET("/api/v1/documents/:id/access-logs", middleware.AuthMiddleware(), GetDocumentAccessLogs(db))
 	return router
 }
 
 func getAccessLogs(t *testing.T, router *gin.Engine, id, role string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/documents/"+id+"/access-logs", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/documents/"+id+"/access-logs", nil)
 	req.Header.Set("Authorization", "Bearer "+bearerToken(t, 1, role))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -96,12 +95,15 @@ func TestGetDocumentAccessLogsRole(t *testing.T) {
 	t.Setenv("JWT_SECRET", "access-log-test-only-secret")
 
 	db, got := newAccessLogTestDB(t, accessLogFixture{documentFound: true})
-	rec := getAccessLogs(t, newAccessLogRouter(db), "15", models.RoleKaryawan)
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("KARYAWAN: status = %d, want 403", rec.Code)
-	}
-	if got.documentSQL != "" {
-		t.Fatal("request KARYAWAN tidak boleh sampai ke query dokumen")
+	router := newAccessLogRouter(db)
+	for _, role := range []string{models.RoleKaryawan, models.RoleSuperAdmin} {
+		rec := getAccessLogs(t, router, "15", role)
+		if rec.Code != http.StatusForbidden || got.documentSQL != "" {
+			t.Fatalf("%s: status = %d, query = %q; want 403 and no query", role, rec.Code, got.documentSQL)
+		}
+		if role == models.RoleKaryawan && errorMessage(t, rec) != "Role Karyawan dilarang mengakses resource ini." {
+			t.Fatalf("unexpected KARYAWAN response: %s", rec.Body)
+		}
 	}
 }
 
@@ -212,6 +214,10 @@ func TestGetDocumentAccessLogsSuccess(t *testing.T) {
 	}
 	if !containsVar(got.logsVars, uint(15)) || !containsVar(got.logsVars, "DOWNLOAD") {
 		t.Fatalf("access_logs query vars = %v", got.logsVars)
+	}
+	if !strings.Contains(got.readersSQL, "u.company_id = @p1") || got.readersVars[0] != uint(11) ||
+		!strings.Contains(got.logsSQL, "u.company_id = @p6") || got.logsVars[5] != uint(11) {
+		t.Fatalf("both queries must match user metadata to the JWT tenant: %+v", got)
 	}
 	upper := strings.ToUpper(got.logsSQL)
 	if !strings.Contains(upper, "OUTER APPLY") || strings.Contains(upper, "MAX(CASE WHEN L.ACTION = @P1 THEN L.IP_ADDRESS") ||

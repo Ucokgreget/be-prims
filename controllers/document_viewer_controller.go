@@ -46,6 +46,9 @@ type viewSessionData struct {
 	ExpiresIn     int64             `json:"expires_in"`
 	StreamURL     string            `json:"stream_url"`
 	WatermarkMeta viewWatermarkMeta `json:"watermark_meta"`
+	Watermark     struct {
+		Text string `json:"text"`
+	} `json:"watermark"`
 }
 
 // viewerIdentity: identitas peminta yang dipakai untuk otorisasi +
@@ -72,7 +75,7 @@ func CreateDocumentViewSession(db *gorm.DB) gin.HandlerFunc {
 			UserID:    claims.UserID,
 			Role:      claims.Role,
 			CompanyID: claims.CompanyID,
-		})
+		}, "Dokumen tidak ditemukan")
 		if !ok {
 			return
 		}
@@ -117,21 +120,23 @@ func CreateDocumentViewSession(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		data := viewSessionData{
+			ViewToken: token,
+			ExpiresIn: expiresIn,
+			StreamURL: fmt.Sprintf("/api/v1/portal/documents/%s/stream", document.UUID),
+			WatermarkMeta: viewWatermarkMeta{
+				CompanyName: company.Name,
+				BadgeNumber: claims.BadgeNumber,
+				UserName:    claims.Name,
+				AccessTime:  now.In(wibZone).Format("2006-01-02 15:04:05 MST"),
+				ClientIP:    clientIP,
+			},
+		}
+		data.Watermark.Text = fmt.Sprintf("%s • %s • %s • %s • %s", company.Name, claims.BadgeNumber, claims.Name, data.WatermarkMeta.AccessTime, clientIP)
 		c.JSON(http.StatusOK, gin.H{
 			"status":  "success",
 			"message": "Sesi viewer dokumen berhasil dibuat",
-			"data": viewSessionData{
-				ViewToken: token,
-				ExpiresIn: expiresIn,
-				StreamURL: fmt.Sprintf("/api/v1/portal/documents/%s/stream", document.UUID),
-				WatermarkMeta: viewWatermarkMeta{
-					CompanyName: company.Name,
-					BadgeNumber: claims.BadgeNumber,
-					UserName:    claims.Name,
-					AccessTime:  now.In(wibZone).Format("2006-01-02 15:04:05 MST"),
-					ClientIP:    clientIP,
-				},
-			},
+			"data":    data,
 		})
 	}
 }
@@ -152,7 +157,7 @@ func StreamDocumentPdf(db *gorm.DB, recorder *audit.Recorder) gin.HandlerFunc {
 			return
 		}
 
-		document, ok := authorizePortalDocument(c, db, identity)
+		document, ok := authorizePortalDocument(c, db, identity, "Dokumen tidak ditemukan")
 		if !ok {
 			return
 		}
@@ -279,7 +284,7 @@ func viewerUnauthorized(c *gin.Context, message string) {
 // authorizePortalDocument mencari dokumen milik tenant pemakai lalu menegakkan
 // guard dokumen private. Meng-abort response dan mengembalikan ok=false bila
 // akses ditolak.
-func authorizePortalDocument(c *gin.Context, db *gorm.DB, identity viewerIdentity) (*models.Document, bool) {
+func authorizePortalDocument(c *gin.Context, db *gorm.DB, identity viewerIdentity, notFoundMessage string) (*models.Document, bool) {
 	var document models.Document
 	err := db.
 		Preload("Attachment").
@@ -289,7 +294,7 @@ func authorizePortalDocument(c *gin.Context, db *gorm.DB, identity viewerIdentit
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{
 			"status":  "error",
-			"message": "Dokumen tidak ditemukan",
+			"message": notFoundMessage,
 		})
 		return nil, false
 	}
