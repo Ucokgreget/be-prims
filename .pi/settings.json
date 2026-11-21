@@ -1,4 +1,5 @@
 {
   "defaultProvider": "omniroute",
-  "defaultModel": "cbai/glm-5.3"
+  "defaultModel": "cx/gpt-6.2-sol",
+  "defaultThinkingLevel": "high"
 }

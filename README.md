@@ -1,93 +1,201 @@
-# be-prims
+# Backend PRIMS
 
+API REST untuk menerbitkan, membagikan, dan mengaudit akses dokumen internal anak perusahaan PUSRI. Metadata dan log akses disimpan di SQL Server; berkas PDF disimpan di MinIO.
 
+[Setup lokal](#setup-lokal) · [Coba API](#coba-api) · [Referensi API](#referensi-api) · [Pengembangan](#pengembangan) · [Pemecahan masalah](#pemecahan-masalah)
 
-## Getting started
+## Fitur
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+- **Administrasi perusahaan:** kelola akun, kategori, tag, dan dokumen. Admin anak perusahaan mengelola data perusahaan tempat akun terdaftar.
+- **Portal dokumen:** telusuri dokumen perusahaan dan lihat dokumen privat yang dibagikan ke akun Anda.
+- **Akses PDF:** baca melalui sesi viewer atau unduh salinan dengan watermark identitas pengunduh. Aktivitas baca dan unduh dicatat dalam log akses.
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+Backend memakai Go 1.27.0+, Gin, GORM, `golang-jwt/v5` untuk autentikasi, dan pdfcpu untuk watermark PDF.
 
-## Add your files
+## Setup lokal
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+Siapkan [Go 1.27.0+](https://go.dev/dl/), [Git](https://git-scm.com/downloads), SQL Server, dan MinIO. [Docker](https://docs.docker.com/get-docker/) opsional untuk menjalankan SQL Server. Contoh perintah berikut memakai Bash.
 
+### 1. Clone repositori
+
+```bash
+git clone https://gitlab.pusri.co.id/prims/be-prims.git
+cd be-prims
 ```
-cd existing_repo
-git remote add origin https://gitlab.pusri.co.id/prims/be-prims.git
-git branch -M main
-git push -uf origin main
+
+### 2. Buat database SQL Server
+
+Jika sudah punya instance SQL Server, buat database `prims` dengan `CREATE DATABASE prims;`, lalu sesuaikan koneksi di `.env`. Jika belum, jalankan SQL Server 2022 di Docker:
+
+```bash
+docker run --name prims-sqlserver \
+  -e ACCEPT_EULA=Y \
+  -e 'MSSQL_SA_PASSWORD=PrimsLocal_ChangeMe123' \
+  -p 127.0.0.1:1433:1433 \
+  -v prims-sql-data:/var/opt/mssql \
+  -d mcr.microsoft.com/mssql/server:2022-latest
 ```
 
-## Integrate with your tools
+Setelah SQL Server siap menerima koneksi (`docker logs prims-sqlserver`), buat database satu kali:
 
-* [Set up project integrations](https://gitlab.pusri.co.id/prims/be-prims/-/settings/integrations)
+```bash
+docker exec -it prims-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+  -S localhost -U sa -P 'PrimsLocal_ChangeMe123' -C \
+  -Q 'CREATE DATABASE prims;'
+```
 
-## Collaborate with your team
+### 3. Jalankan MinIO
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+Lewati langkah ini jika sudah punya instance MinIO. Jika belum, jalankan dari root repositori di terminal terpisah:
 
-## Test and Deploy
+```bash
+go install github.com/minio/minio@latest
+MINIO_ROOT_USER=minioadmin MINIO_ROOT_PASSWORD=minioadmin \
+  "$(go env GOPATH)/bin/minio" server ./minio-data \
+  --address '127.0.0.1:9000' --console-address '127.0.0.1:9001'
+```
 
-Use the built-in continuous integration in GitLab.
+Konsol MinIO tersedia di <http://localhost:9001>. Backend memeriksa dan membuat bucket `prims` saat startup jika bucket belum ada.
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+### 4. Buat `.env`
 
-***
+Buat `.env` di root repositori. Contoh ini cocok dengan layanan lokal di atas; sesuaikan kredensial dan endpoint jika memakai instance lain.
 
-# Editing this README
+```dotenv
+SQL_SERVER_URL=sqlserver://sa:PrimsLocal_ChangeMe123@localhost:1433?database=prims
+JWT_SECRET=replace-with-a-long-random-secret
+MINIO_ENDPOINT=localhost:9000
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=minioadmin
+MINIO_BUCKET=prims
+MINIO_USE_SSL=false
+```
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+Ganti `JWT_SECRET` dengan nilai acak. Isi `MINIO_ENDPOINT` dalam format `host:port` tanpa skema, dan set `MINIO_USE_SSL=true` jika koneksi ke MinIO memakai TLS.
 
-## Suggestions for a good README
+| Variabel opsional | Kegunaan |
+| --- | --- |
+| `VIEW_TOKEN_SECRET` | Secret untuk token sesi viewer. Jika kosong, memakai `JWT_SECRET`; pisahkan keduanya di lingkungan non-lokal. |
+| `TRUSTED_PROXIES` | CIDR reverse proxy tepercaya, dipisahkan koma. Jika kosong, log akses memakai IP koneksi langsung. |
+| `PRIMS_PUBLIC_URL` | URL yang dicetak pada watermark PDF. Default: `https://prims.pusri.co.id`. |
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+> [!IMPORTANT]
+> Jangan commit `.env`. Kredensial contoh dan akun seed hanya untuk pengembangan lokal; jangan mengekspos server demo ke jaringan publik.
 
-## Name
-Choose a self-explaining name for your project.
+### 5. Jalankan server dan isi data demo
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+```bash
+go run .
+```
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+Server menjalankan migrasi tabel, menginisialisasi MinIO, lalu melayani permintaan di <http://localhost:8080>. Setelah server siap, jalankan perintah berikut dari terminal lain di root repositori:
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+```bash
+go run . seed
+```
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+Seed mengisi data referensi, akun demo, dan metadata dokumen. Tidak perlu me-restart server.
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+## Coba API
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+### Login sebagai admin demo
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+```bash
+API=http://localhost:8080/api/v1
+curl -fsS "$API/company"
+```
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+Cari perusahaan berkode `SMR`. Ganti `1` pada contoh berikut dengan nilai `id` perusahaan tersebut jika berbeda:
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+```bash
+curl -fsS "$API/auth/login" \
+  -H 'Content-Type: application/json' \
+  -d '{"badge_number":"1001","password":"password123","company_id":1}'
+```
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+Salin `data.token` dari respons, lalu gunakan untuk memeriksa profil:
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+```bash
+TOKEN='paste-data.token-here'
+curl -fsS "$API/auth/me" -H "Authorization: Bearer $TOKEN"
+```
 
-## License
-For open source projects, say how it is licensed.
+### Unggah dan unduh PDF
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+Seed **tidak** mengunggah PDF ke MinIO. Untuk mencoba alur berkas, unggah PDF sendiri dengan token admin. Ambil ID dari `GET /category`, `GET /departments`, dan `GET /tags`, lalu ganti nilai contoh `1` di bawah. Ganti `contoh.pdf` dengan path berkas Anda.
+
+```bash
+curl -fsS "$API/document" -H "Authorization: Bearer $TOKEN" \
+  -F 'title=Panduan Arsip' -F 'description=Dokumen uji lokal' \
+  -F 'document_number=PRIMS-001' -F 'publication_date=2026-01-15' \
+  -F 'category_id=1' -F 'department_id=1' -F 'tag_id=1' \
+  -F 'allow_download=true' -F 'attachment=@contoh.pdf'
+```
+
+Gunakan `data.uuid` yang dikembalikan untuk mengunduh salinan ber-watermark:
+
+```bash
+DOCUMENT_UUID='paste-data.uuid-here'
+curl -fsS "$API/portal/documents/$DOCUMENT_UUID/download" \
+  -H "Authorization: Bearer $TOKEN" -o unduhan-prims.pdf
+```
+
+### Akun demo
+
+Semua akun seed memakai password `password123`.
+
+| Nomor badge | Role | Kode perusahaan |
+| --- | --- | --- |
+| `1000` | `SUPERADMIN` | `SMR` |
+| `1001` | `ADMIN_ANPER` | `SMR` |
+| `1002`, `1003` | `KARYAWAN` | `SMR` |
+| `2001` | `KARYAWAN` | `PAL` |
+
+## Referensi API
+
+Semua rute berikut memakai prefix `/api/v1`. Rute terproteksi menerima header `Authorization: Bearer <token>`.
+
+| Rute | Kegunaan |
+| --- | --- |
+| `GET /company`, `POST /auth/login` | Daftar perusahaan dan login; tanpa token |
+| `GET /auth/me` | Profil akun yang sedang login |
+| `GET /portal/categories`, `GET /portal/documents` | Kategori dan daftar dokumen yang dapat diakses |
+| `GET /portal/documents/shared-with-me` | Dokumen yang dibagikan ke akun |
+| `GET /portal/documents/:uuid` | Detail dokumen |
+| `POST /portal/documents/:uuid/view-session` | Buat token sementara untuk membaca PDF |
+| `GET /portal/documents/:uuid/stream` | Stream PDF dengan Bearer JWT atau `?view_token=…` |
+| `GET /portal/documents/:uuid/download` | Unduh PDF ber-watermark. Untuk `KARYAWAN`, dokumen juga harus mengizinkan unduhan. |
+| `POST /document` | `ADMIN_ANPER`: unggah satu PDF lewat `multipart/form-data`, field `attachment`, maksimum 25 MiB |
+| `GET /documents`, `GET /admin/audit-logs` | `ADMIN_ANPER`: daftar dokumen dan log akses perusahaan |
+
+Lihat [`routes/route.go`](routes/route.go) untuk semua rute dan aturan aksesnya. PDF disajikan lewat endpoint portal, bukan URL statis `/uploads`.
+
+## Pengembangan
+
+```bash
+go test ./...
+go build -o be-prims .
+```
+
+| Perintah | Fungsi |
+| --- | --- |
+| `./be-prims` | Migrasi tabel, inisialisasi MinIO, dan jalankan server pada port `8080`. |
+| `./be-prims seed` | Isi tabel yang sudah ada dengan data demo, lalu keluar. |
+| `./be-prims migrate-fresh` | Buat ulang tabel aplikasi dan jalankan seed. |
+
+> [!WARNING]
+> `migrate-fresh` menghapus data di tabel aplikasi SQL Server dan tidak menghapus objek di MinIO. Gunakan hanya pada database lokal yang boleh di-reset.
+
+- [`main.go`](main.go), [`routes/`](routes/), [`controllers/`](controllers/): startup, rute API, dan handler HTTP.
+- [`database/`](database/), [`models/`](models/), [`request/`](request/): koneksi, migrasi, seed, model, dan validasi input.
+- [`middleware/`](middleware/), [`storage/`](storage/), [`audit/`](audit/), [`pdfstamp/`](pdfstamp/): autentikasi dan pembatasan akses, penyimpanan PDF, log akses, dan watermark.
+
+## Pemecahan masalah
+
+| Gejala | Yang perlu diperiksa |
+| --- | --- |
+| Startup berhenti dengan `env gak ketemu` | Pastikan `.env` ada di direktori kerja saat perintah dijalankan. |
+| Gagal terhubung ke SQL Server | Periksa `SQL_SERVER_URL`, status server, dan apakah database `prims` sudah dibuat. |
+| Startup berhenti dengan `init storage gagal` | Pastikan MinIO berjalan dan endpoint, kredensial, serta pengaturan TLS sesuai. Jika bucket belum ada, akun MinIO harus boleh membuatnya. |
+| Login demo ditolak | Jalankan seed, lalu cocokkan `company_id` dengan kode perusahaan akun dari `GET /company`. |
+| PDF contoh tidak ditemukan | Seed hanya membuat metadata. Coba lagi dengan dokumen yang diunggah lewat API. |
