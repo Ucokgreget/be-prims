@@ -6,6 +6,7 @@
 package pdfstamp
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -26,19 +27,16 @@ type Identity struct {
 	GeneratedBy string    // URL publik PRIMS
 }
 
-// description: tata letak stempel pojok kanan atas sesuai mockup hal. 3 & FE viewer (DEV-16740).
-//   - position:tr + offset:-16 -16 → pojok kanan atas dengan jarak rapi dari tepi kertas.
-//   - fontname:Helvetica-Bold + points:9 + scalefactor:1 abs → ketebalan dan ukuran tegas
-//     menyamai stempel pada tampilan View di frontend.
-//   - fillcolor:#D13838 + border:1 #D94747 + margins:8 + bgcolor:#FFFFFF + opacity:0.88 →
-//     kotak stempel merah tegas namun tetap semi-transparan agar teks di bawahnya terbaca.
-//
 // Nama parameter ditulis lengkap: singkatan seperti "ma" ambigu di pdfcpu.
+// Border pada pdfcpu hanya dirender bila bgcolor diset.
 const description = "fontname:Helvetica-Bold, points:9, position:tr, offset:-16 -16, " +
 	"scalefactor:1 abs, rotation:0, aligntext:l, fillcolor:#D13838, opacity:0.88, " +
 	"margins:8, border:1 #D94747, bgcolor:#FFFFFF"
 
-// Text menyusun teks stempel multi-baris.
+const diagonalDescription = "fontname:Helvetica-Bold, points:16, position:c, rotation:35, " +
+	"scalefactor:1 abs, aligntext:c, fillcolor:#737373, opacity:0.16"
+
+// Text menyusun teks stempel multi-baris di pojok kanan atas.
 func Text(id Identity) string {
 	lines := []string{
 		"** DOKUMEN ASLI **",
@@ -53,6 +51,16 @@ func Text(id Identity) string {
 	return strings.Join(lines, "\n")
 }
 
+// DiagonalText menyusun teks watermark diagonal di bagian tengah halaman.
+func DiagonalText(id Identity) string {
+	line := fmt.Sprintf("%s - %s  •  %s",
+		sanitize(id.BadgeNumber),
+		strings.ToUpper(sanitize(id.Name)),
+		sanitize(id.GeneratedBy),
+	)
+	return line + "\n\n\n\n\n\n" + line
+}
+
 // Stamp membaca PDF dari src, menstempel seluruh halaman, dan menulis hasilnya ke w.
 func Stamp(ctx context.Context, src io.ReadSeeker, w io.Writer, id Identity) error {
 	// Stateless: konfigurasi bawaan tanpa membaca/membuat ~/.config/pdfcpu
@@ -60,13 +68,23 @@ func Stamp(ctx context.Context, src io.ReadSeeker, w io.Writer, id Identity) err
 	conf := model.NewStatelessConfiguration()
 	conf.ValidationMode = model.ValidationRelaxed
 
-	wm, err := api.TextWatermark(ctx, Text(id), description, true, false, types.POINTS, conf)
+	diagWm, err := api.TextWatermark(ctx, DiagonalText(id), diagonalDescription, true, false, types.POINTS, conf)
+	if err != nil {
+		return fmt.Errorf("pdfstamp: konfigurasi watermark diagonal: %w", err)
+	}
+
+	var mid bytes.Buffer
+	// selectedPages nil = seluruh halaman.
+	if err := api.AddWatermarks(ctx, src, &mid, nil, diagWm, conf); err != nil {
+		return fmt.Errorf("pdfstamp: watermark diagonal PDF: %w", err)
+	}
+
+	boxWm, err := api.TextWatermark(ctx, Text(id), description, true, false, types.POINTS, conf)
 	if err != nil {
 		return fmt.Errorf("pdfstamp: konfigurasi stempel: %w", err)
 	}
 
-	// selectedPages nil = seluruh halaman.
-	if err := api.AddWatermarks(ctx, src, w, nil, wm, conf); err != nil {
+	if err := api.AddWatermarks(ctx, bytes.NewReader(mid.Bytes()), w, nil, boxWm, conf); err != nil {
 		return fmt.Errorf("pdfstamp: stempel PDF: %w", err)
 	}
 	return nil

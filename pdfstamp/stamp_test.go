@@ -89,6 +89,24 @@ func TestTextSanitizesUserInput(t *testing.T) {
 	}
 }
 
+func TestDiagonalTextFormat(t *testing.T) {
+	got := DiagonalText(testIdentity())
+	line := "K-12345 - BUDI SANTOSO  •  https://prims.pusri.co.id"
+	want := line + "\n\n\n\n\n\n" + line
+	if got != want {
+		t.Fatalf("teks diagonal:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestDiagonalTextSanitizesUserInput(t *testing.T) {
+	id := testIdentity()
+	id.Name = "Evil\\nName\nInjected"
+	got := DiagonalText(id)
+	if strings.Count(got, "\n") != 6 || strings.Contains(got, `\n`) {
+		t.Fatalf("input user mengubah jumlah baris watermark diagonal: %q", got)
+	}
+}
+
 func TestStampAllPagesKeepsSourceClean(t *testing.T) {
 	src := samplePDF(t, 3)
 	pristine := bytes.Clone(src)
