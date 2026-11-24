@@ -26,16 +26,17 @@ type Identity struct {
 	GeneratedBy string    // URL publik PRIMS
 }
 
-// description: tata letak sesuai mockup hal. 3.
-//   - pos:tr + off:-12 -12 → pojok kanan atas dengan margin tetap dari tepi
-//     kertas (setara x = width-~210, y = height-~90 untuk kotak selebar stempel).
-//   - scale:1 abs + points:8 → ukuran font absolut 8pt, tidak ikut skala halaman.
-//   - fillcolor #D9534F + opacity:0.75 → teks merah semi-transparan,
-//     tanpa kotak latar yang menutupi isi dokumen.
+// description: tata letak stempel pojok kanan atas sesuai mockup hal. 3 & FE viewer (DEV-16740).
+//   - position:tr + offset:-16 -16 → pojok kanan atas dengan jarak rapi dari tepi kertas.
+//   - fontname:Helvetica-Bold + points:9 + scalefactor:1 abs → ketebalan dan ukuran tegas
+//     menyamai stempel pada tampilan View di frontend.
+//   - fillcolor:#D13838 + border:1 #D94747 + margins:8 + bgcolor:#FFFFFF + opacity:0.88 →
+//     kotak stempel merah tegas namun tetap semi-transparan agar teks di bawahnya terbaca.
 //
 // Nama parameter ditulis lengkap: singkatan seperti "ma" ambigu di pdfcpu.
-const description = "fontname:Helvetica, points:8, position:tr, offset:-12 -12, " +
-	"scalefactor:1 abs, rotation:0, aligntext:l, fillcolor:#D9534F, opacity:0.75"
+const description = "fontname:Helvetica-Bold, points:9, position:tr, offset:-16 -16, " +
+	"scalefactor:1 abs, rotation:0, aligntext:l, fillcolor:#D13838, opacity:0.88, " +
+	"margins:8, border:1 #D94747, bgcolor:#FFFFFF"
 
 // Text menyusun teks stempel multi-baris.
 func Text(id Identity) string {
