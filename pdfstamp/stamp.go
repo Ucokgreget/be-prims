@@ -28,10 +28,7 @@ type Identity struct {
 }
 
 // Nama parameter ditulis lengkap: singkatan seperti "ma" ambigu di pdfcpu.
-// Border pada pdfcpu hanya dirender bila bgcolor diset.
-const description = "fontname:Helvetica-Bold, points:9, position:tr, offset:-16 -16, " +
-	"scalefactor:1 abs, rotation:0, aligntext:l, fillcolor:#D13838, opacity:0.88, " +
-	"margins:8, border:1 #D94747, bgcolor:#FFFFFF"
+const boxDescription = "position:tr, offset:-16 -16, scalefactor:1 abs, rotation:0, opacity:0.92"
 
 const diagonalDescription = "fontname:Helvetica-Bold, points:16, position:c, rotation:35, " +
 	"scalefactor:1 abs, aligntext:c, fillcolor:#737373, opacity:0.16"
@@ -79,7 +76,10 @@ func Stamp(ctx context.Context, src io.ReadSeeker, w io.Writer, id Identity) err
 		return fmt.Errorf("pdfstamp: watermark diagonal PDF: %w", err)
 	}
 
-	boxWm, err := api.TextWatermark(ctx, Text(id), description, true, false, types.POINTS, conf)
+	// TextWatermark pdfcpu tidak menggambar border tanpa bgcolor, sehingga kotak
+	// ber-border transparan dibuat sebagai PDF vektor 1 halaman lalu ditempelkan.
+	boxPDF := buildStampBoxPDF(strings.Split(Text(id), "\n"))
+	boxWm, err := api.PDFWatermarkForReadSeeker(ctx, bytes.NewReader(boxPDF), 1, boxDescription, true, false, types.POINTS)
 	if err != nil {
 		return fmt.Errorf("pdfstamp: konfigurasi stempel: %w", err)
 	}
@@ -88,6 +88,83 @@ func Stamp(ctx context.Context, src io.ReadSeeker, w io.Writer, id Identity) err
 		return fmt.Errorf("pdfstamp: stempel PDF: %w", err)
 	}
 	return nil
+}
+
+// buildStampBoxPDF menghasilkan PDF vektor 1 halaman berisi garis tepi merah
+// tanpa warna latar belakang agar dokumen di bawah stempel tetap terlihat penuh.
+func buildStampBoxPDF(lines []string) []byte {
+	const (
+		fontSize   = 8.5
+		lineHeight = 11.5
+		padX       = 9.0
+		padY       = 8.0
+	)
+
+	maxLen := 0
+	for _, l := range lines {
+		if len(l) > maxLen {
+			maxLen = len(l)
+		}
+	}
+
+	boxW := float64(maxLen)*5.2 + padX*2
+	if boxW < 188 {
+		boxW = 188
+	}
+	boxH := float64(len(lines))*lineHeight + padY*2
+
+	var stream bytes.Buffer
+	fmt.Fprintf(&stream, "0.85 0.28 0.28 RG 1 w 0.5 0.5 %.2f %.2f re S\n", boxW-1, boxH-1)
+	stream.WriteString("0.82 0.22 0.22 rg\n")
+	for i, l := range lines {
+		y := boxH - padY - fontSize - float64(i)*lineHeight
+		fmt.Fprintf(&stream, "BT /F1 %.1f Tf %.2f %.2f Td (%s) Tj ET\n", fontSize, padX, y, pdfLiteral(l))
+	}
+
+	objs := []string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [4 0 R] /Count 1 >>",
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
+		fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %.2f %.2f] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>", boxW, boxH),
+		fmt.Sprintf("<< /Length %d >>\nstream\n%sendstream", stream.Len(), stream.String()),
+	}
+
+	var out bytes.Buffer
+	out.WriteString("%PDF-1.7\n")
+	offsets := make([]int, len(objs))
+	for i, o := range objs {
+		offsets[i] = out.Len()
+		fmt.Fprintf(&out, "%d 0 obj\n%s\nendobj\n", i+1, o)
+	}
+	xref := out.Len()
+	fmt.Fprintf(&out, "xref\n0 %d\n0000000000 65535 f \n", len(objs)+1)
+	for _, off := range offsets {
+		fmt.Fprintf(&out, "%010d 00000 n \n", off)
+	}
+	fmt.Fprintf(&out, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(objs)+1, xref)
+	return out.Bytes()
+}
+
+func pdfLiteral(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch r {
+		case '\\':
+			b.WriteString(`\\`)
+		case '(':
+			b.WriteString(`\(`)
+		case ')':
+			b.WriteString(`\)`)
+		default:
+			if r >= 32 && r <= 126 {
+				b.WriteRune(r)
+			} else {
+				b.WriteByte(' ')
+			}
+		}
+	}
+	return b.String()
 }
 
 // sanitize menetralkan sintaks khusus teks stempel pdfcpu: literal "\n"
