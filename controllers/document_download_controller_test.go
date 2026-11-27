@@ -32,6 +32,7 @@ func withAllowDownload(t *testing.T, db *gorm.DB, allow bool) {
 	if err := db.Callback().Query().After("test:document").Register("test:allow_download", func(tx *gorm.DB) {
 		if dest, ok := tx.Statement.Dest.(*models.Document); ok && tx.Statement.Table == "documents" {
 			dest.AllowDownload = allow
+			dest.Title = "SK Direksi 01/2026"
 		}
 	}); err != nil {
 		t.Fatal(err)
@@ -89,7 +90,9 @@ func newDownloadRouter(t *testing.T, db *gorm.DB) *gin.Engine {
 func doDownload(t *testing.T, router *gin.Engine, uuid, role string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/portal/documents/"+uuid+"/download", nil)
-	req.Header.Set("Authorization", "Bearer "+bearerToken(t, 2, role))
+	if role != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken(t, 2, role))
+	}
 	req.RemoteAddr = "192.168.1.50:51234"
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -127,13 +130,17 @@ func TestDownloadDocumentPdfAccess(t *testing.T) {
 		wantMsg  string
 		wantFile bool
 	}{
+		{"tanpa-jwt", false, false, true, "", 401, "Unauthorized", false},
 		{"allowed-karyawan", false, false, true, models.RoleKaryawan, 200, "", true},
 		{"view-only-karyawan", false, false, false, models.RoleKaryawan, 403, viewOnlyMsg, false},
-		{"view-only-admin-tetap-boleh", false, false, false, models.RoleAdminAnper, 200, "", true},
+		{"view-only-admin", false, false, false, models.RoleAdminAnper, 403, viewOnlyMsg, false},
 		{"private-shared-karyawan", true, true, true, models.RoleKaryawan, 200, "", true},
 		{"private-unshared-karyawan", true, false, true, models.RoleKaryawan, 403,
 			"Akses ditolak. Anda tidak memiliki izin untuk melihat dokumen rahasia ini.", false},
-		{"private-admin", true, false, false, models.RoleAdminAnper, 200, "", true},
+		{"private-unshared-admin", true, false, true, models.RoleAdminAnper, 403,
+			"Akses ditolak. Anda tidak memiliki izin untuk melihat dokumen rahasia ini.", false},
+		{"private-shared-view-only-admin", true, true, false, models.RoleAdminAnper, 403, viewOnlyMsg, false},
+		{"private-shared-admin", true, true, true, models.RoleAdminAnper, 200, "", true},
 	}
 
 	for _, tc := range cases {
@@ -186,12 +193,12 @@ func TestDownloadDocumentPdfAccess(t *testing.T) {
 				t.Fatalf("Content-Length = %q, want ukuran hasil stempel", h.Get("Content-Length"))
 			}
 			disp, params, err := mime.ParseMediaType(h.Get("Content-Disposition"))
-			if err != nil || disp != "attachment" || params["filename"] != "laporan.pdf" {
+			if err != nil || disp != "attachment" || params["filename"] != "SK Direksi 01_2026.pdf" {
 				t.Fatalf("Content-Disposition = %q", h.Get("Content-Disposition"))
 			}
 
 			if got.BadgeNumber != "1002" || got.Name != "Staf SDM Demo" ||
-				got.CompanyName != "PT Sri Melamin Rejeki" || got.GeneratedBy != defaultPublicURL {
+				got.CompanyName != "PT Sri Melamin Rejeki" {
 				t.Fatalf("identitas stempel salah: %+v", *got)
 			}
 			if got.DownloadAt.Location() != wibZone {
@@ -337,12 +344,13 @@ func TestDownloadDocumentPdfCrossTenantNotLogged(t *testing.T) {
 
 func TestAttachmentDisposition(t *testing.T) {
 	cases := map[string]string{
-		"laporan.pdf":            "laporan.pdf",
-		`a"b.pdf`:                `a"b.pdf`,
-		"../../etc/passwd":       "passwd.pdf",
-		`C:\docs\SK Direksi.pdf`: "SK Direksi.pdf",
-		"":                       "dokumen.pdf",
-		"Laporan Ü.pdf":          "Laporan Ü.pdf",
+		"laporan.pdf":         "laporan.pdf",
+		`a"b.pdf`:             `a"b.pdf`,
+		"SK Direksi 01/2026":  "SK Direksi 01_2026.pdf",
+		"Laporan\r\nInternal": "Laporan__Internal.pdf",
+		`SK\Direksi.pdf`:      "SK_Direksi.pdf",
+		"":                    "dokumen.pdf",
+		"Laporan Ü.pdf":       "Laporan Ü.pdf",
 	}
 	for in, want := range cases {
 		_, params, err := mime.ParseMediaType(attachmentDisposition(in))

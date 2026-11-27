@@ -77,7 +77,6 @@ Ganti `JWT_SECRET` dengan nilai acak. Isi `MINIO_ENDPOINT` dalam format `host:po
 | --- | --- |
 | `VIEW_TOKEN_SECRET` | Secret untuk token sesi viewer. Jika kosong, memakai `JWT_SECRET`; pisahkan keduanya di lingkungan non-lokal. |
 | `TRUSTED_PROXIES` | CIDR reverse proxy tepercaya, dipisahkan koma. Jika kosong, log akses memakai IP koneksi langsung. |
-| `PRIMS_PUBLIC_URL` | URL yang dicetak pada watermark PDF. Default: `https://prims.pusri.co.id`. |
 
 > [!IMPORTANT]
 > Jangan commit `.env`. Kredensial contoh dan akun seed hanya untuk pengembangan lokal; jangan mengekspos server demo ke jaringan publik.
@@ -159,14 +158,24 @@ Semua rute berikut memakai prefix `/api/v1`. Rute terproteksi menerima header `A
 | --- | --- |
 | `GET /company`, `POST /auth/login` | Daftar perusahaan dan login; tanpa token |
 | `GET /auth/me` | Profil akun yang sedang login |
+| `GET /superadmin/companies` | `SUPERADMIN`: daftar semua perusahaan dan statistik; filter `search`, `status`, `page`, `limit` |
+| `POST /superadmin/companies` | `SUPERADMIN`: daftarkan perusahaan dan siapkan folder MinIO |
+| `PUT /superadmin/companies/:id` | `SUPERADMIN`: ubah nama, kode, alamat, dan kuota |
+| `PATCH /superadmin/companies/:id/status` | `SUPERADMIN`: ubah status dengan `{"status":"active"}` atau `{"status":"inactive"}` |
+| `PATCH /superadmin/anper-admins/:id/reset-password` | `SUPERADMIN`: reset password akun `ADMIN_ANPER`. Kirim `{"new_password":"<password baru>"}` (maks. 72 byte). Reset dicatat di `audit_logs`. |
+| `PATCH /superadmin/anper-admins/:id/status` | `SUPERADMIN`: ubah status akun `ADMIN_ANPER` dengan `{"status":"active"}` atau `{"status":"inactive"}`. Akun nonaktif tidak bisa login; token yang sudah terbit tidak dicabut oleh endpoint ini. |
 | `GET /portal/categories`, `GET /portal/documents` | Kategori dan daftar dokumen yang dapat diakses |
 | `GET /portal/documents/shared-with-me` | Dokumen yang dibagikan ke akun |
 | `GET /portal/documents/:uuid` | Detail dokumen |
 | `POST /portal/documents/:uuid/view-session` | Buat token sementara untuk membaca PDF |
 | `GET /portal/documents/:uuid/stream` | Stream PDF dengan Bearer JWT atau `?view_token=…` |
-| `GET /portal/documents/:uuid/download` | Unduh PDF ber-watermark. Untuk `KARYAWAN`, dokumen juga harus mengizinkan unduhan. |
+| `GET /portal/documents/:uuid/download` | Unduh PDF berstempel identitas dengan nama file dari judul dokumen. `allow_download` harus aktif; untuk dokumen rahasia, termasuk bagi `ADMIN_ANPER`, pengguna harus terdaftar sebagai penerima share. |
 | `POST /document` | `ADMIN_ANPER`: unggah satu PDF lewat `multipart/form-data`, field `attachment`, maksimum 25 MiB |
 | `GET /documents`, `GET /admin/audit-logs` | `ADMIN_ANPER`: daftar dokumen dan log akses perusahaan |
+
+POST dan PUT perusahaan menerima `name`, `code`, `storage_quota_gb`, dan `address`. Kode unik tanpa membedakan huruf besar-kecil. Kuota default perusahaan baru adalah 50; satu unit GB di API = 1.073.741.824 byte. Pemakaian dihitung dari ukuran lampiran dokumen yang tercatat, bukan seluruh isi bucket. Upload yang melampaui kuota ditolak dengan `409` (`storage_quota_exceeded`); menurunkan kuota tidak menghapus dokumen.
+
+Perusahaan nonaktif tetap terlihat di dropdown login supaya pengguna dapat menerima pesan yang sesuai. Token API dan viewer lama milik karyawan atau Admin Anper ditolak, termasuk setelah perusahaan diaktifkan kembali. Superadmin tetap dapat mengelola perusahaan. Perubahan kode atau status tidak memindahkan atau menghapus dokumen lama.
 
 Lihat [`routes/route.go`](routes/route.go) untuk semua rute dan aturan aksesnya. PDF disajikan lewat endpoint portal, bukan URL statis `/uploads`.
 
@@ -176,6 +185,8 @@ Lihat [`routes/route.go`](routes/route.go) untuk semua rute dan aturan aksesnya.
 go test ./...
 go build -o be-prims .
 ```
+
+Untuk tes integrasi perusahaan, isi `PRIMS_TEST_SQLSERVER_URL` dengan koneksi ke **database uji kosong**, atur `MINIO_*` ke bucket uji, lalu jalankan `go test ./routes -run TestCompanyLifecycleIntegration -count=1`. Tes membuat tabel dan menyimpan PDF uji.
 
 | Perintah | Fungsi |
 | --- | --- |

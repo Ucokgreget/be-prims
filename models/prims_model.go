@@ -57,7 +57,7 @@ type DocumentDepartment struct {
 
 type Attachment struct {
 	Id         uint      `json:"id" gorm:"primaryKey"`
-	DocumentID uint      `json:"document_id"`
+	DocumentID uint      `json:"document_id" gorm:"index"`
 	FileName   string    `json:"file_name"`
 	FilePath   string    `json:"file_path"`
 	FileSize   int64     `json:"file_size"`

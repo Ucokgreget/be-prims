@@ -16,12 +16,13 @@ const TokenTTL = 8 * time.Hour
 const apiAudience = "api"
 
 type AuthClaims struct {
-	UserID       uint   `json:"user_id"`
-	Name         string `json:"name"`
-	BadgeNumber  string `json:"badge_number"`
-	Role         string `json:"role"`
-	CompanyID    uint   `json:"id_company"`
-	DepartmentID *uint  `json:"id_department"`
+	UserID             uint   `json:"user_id"`
+	Name               string `json:"name"`
+	BadgeNumber        string `json:"badge_number"`
+	Role               string `json:"role"`
+	CompanyID          uint   `json:"id_company"`
+	CompanyAuthVersion int64  `json:"company_auth_version,omitempty"`
+	DepartmentID       *uint  `json:"id_department"`
 	jwt.RegisteredClaims
 }
 

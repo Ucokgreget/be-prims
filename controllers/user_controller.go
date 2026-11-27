@@ -4,12 +4,14 @@ import (
 	"be-prims/middleware"
 	"be-prims/models"
 	"be-prims/request"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/driver/sqlserver"
 	"gorm.io/gorm"
 )
 
@@ -116,19 +118,6 @@ func CreateUser(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Cek duplikat badge number dalam company ini
-		var exists int64
-		db.Model(&models.User{}).
-			Where("badge_number = ? AND company_id = ?", input.BadgeNumber, claims.CompanyID).
-			Count(&exists)
-		if exists > 0 {
-			c.AbortWithStatusJSON(http.StatusConflict, gin.H{
-				"status":  "error",
-				"message": "No. Badge tersebut sudah terdaftar di sistem.",
-			})
-			return
-		}
-
 		hash, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
@@ -150,6 +139,13 @@ func CreateUser(db *gorm.DB) gin.HandlerFunc {
 			CompanyID:    claims.CompanyID,
 		}
 		if err := db.Create(&user).Error; err != nil {
+			if errors.Is((sqlserver.Dialector{}).Translate(err), gorm.ErrDuplicatedKey) {
+				c.AbortWithStatusJSON(http.StatusConflict, gin.H{
+					"status":  "error",
+					"message": "No. Badge tersebut sudah terdaftar di sistem.",
+				})
+				return
+			}
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 				"success":    false,
 				"message":    "Gagal menyimpan karyawan baru.",

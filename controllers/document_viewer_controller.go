@@ -54,12 +54,13 @@ type viewSessionData struct {
 // viewerIdentity: identitas peminta yang dipakai untuk otorisasi +
 // pembentukan watermark, terlepas dari sumbernya (JWT API atau view token).
 type viewerIdentity struct {
-	UserID      uint
-	Role        string
-	CompanyID   uint
-	Name        string
-	BadgeNumber string
-	ClientIP    string
+	UserID             uint
+	Role               string
+	CompanyID          uint
+	CompanyAuthVersion int64
+	Name               string
+	BadgeNumber        string
+	ClientIP           string
 }
 
 // ---- POST /api/v1/portal/documents/:uuid/view-session ----
@@ -75,7 +76,7 @@ func CreateDocumentViewSession(db *gorm.DB) gin.HandlerFunc {
 			UserID:    claims.UserID,
 			Role:      claims.Role,
 			CompanyID: claims.CompanyID,
-		}, "Dokumen tidak ditemukan")
+		}, "Dokumen tidak ditemukan", false)
 		if !ok {
 			return
 		}
@@ -103,14 +104,15 @@ func CreateDocumentViewSession(db *gorm.DB) gin.HandlerFunc {
 		clientIP := c.ClientIP()
 
 		token, expiresIn, err := middleware.GenerateViewToken(middleware.ViewTokenClaims{
-			DocumentUUID: document.UUID,
-			UserID:       claims.UserID,
-			CompanyID:    claims.CompanyID,
-			Role:         claims.Role,
-			BadgeNumber:  claims.BadgeNumber,
-			UserName:     claims.Name,
-			CompanyName:  company.Name,
-			ClientIP:     clientIP,
+			DocumentUUID:       document.UUID,
+			UserID:             claims.UserID,
+			CompanyID:          claims.CompanyID,
+			CompanyAuthVersion: claims.CompanyAuthVersion,
+			Role:               claims.Role,
+			BadgeNumber:        claims.BadgeNumber,
+			UserName:           claims.Name,
+			CompanyName:        company.Name,
+			ClientIP:           clientIP,
 		})
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
@@ -153,11 +155,11 @@ func CreateDocumentViewSession(db *gorm.DB) gin.HandlerFunc {
 func StreamDocumentPdf(db *gorm.DB, recorder *audit.Recorder) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		identity, ok := viewerIdentityFromRequest(c)
-		if !ok {
+		if !ok || !middleware.CheckCompanyAccess(c, db, identity.Role, identity.CompanyID, identity.CompanyAuthVersion) {
 			return
 		}
 
-		document, ok := authorizePortalDocument(c, db, identity, "Dokumen tidak ditemukan")
+		document, ok := authorizePortalDocument(c, db, identity, "Dokumen tidak ditemukan", false)
 		if !ok {
 			return
 		}
@@ -244,12 +246,13 @@ func viewerIdentityFromRequest(c *gin.Context) (viewerIdentity, bool) {
 			return viewerIdentity{}, false
 		}
 		return viewerIdentity{
-			UserID:      claims.UserID,
-			Role:        claims.Role,
-			CompanyID:   claims.CompanyID,
-			Name:        claims.UserName,
-			BadgeNumber: claims.BadgeNumber,
-			ClientIP:    claims.ClientIP,
+			UserID:             claims.UserID,
+			Role:               claims.Role,
+			CompanyID:          claims.CompanyID,
+			CompanyAuthVersion: claims.CompanyAuthVersion,
+			Name:               claims.UserName,
+			BadgeNumber:        claims.BadgeNumber,
+			ClientIP:           claims.ClientIP,
 		}, true
 	}
 
@@ -261,12 +264,13 @@ func viewerIdentityFromRequest(c *gin.Context) (viewerIdentity, bool) {
 			return viewerIdentity{}, false
 		}
 		return viewerIdentity{
-			UserID:      claims.UserID,
-			Role:        claims.Role,
-			CompanyID:   claims.CompanyID,
-			Name:        claims.Name,
-			BadgeNumber: claims.BadgeNumber,
-			ClientIP:    c.ClientIP(),
+			UserID:             claims.UserID,
+			Role:               claims.Role,
+			CompanyID:          claims.CompanyID,
+			CompanyAuthVersion: claims.CompanyAuthVersion,
+			Name:               claims.Name,
+			BadgeNumber:        claims.BadgeNumber,
+			ClientIP:           c.ClientIP(),
 		}, true
 	}
 
@@ -284,10 +288,10 @@ func viewerUnauthorized(c *gin.Context, message string) {
 // authorizePortalDocument mencari dokumen milik tenant pemakai lalu menegakkan
 // guard dokumen private. Meng-abort response dan mengembalikan ok=false bila
 // akses ditolak.
-func authorizePortalDocument(c *gin.Context, db *gorm.DB, identity viewerIdentity, notFoundMessage string) (*models.Document, bool) {
+func authorizePortalDocument(c *gin.Context, db *gorm.DB, identity viewerIdentity, notFoundMessage string, requirePrivateShare bool) (*models.Document, bool) {
+	db = db.WithContext(c.Request.Context())
 	var document models.Document
-	err := db.
-		Preload("Attachment").
+	err := db.Preload("Attachment").
 		Where("uuid = ? AND company_id = ?", c.Param("uuid"), identity.CompanyID).
 		Take(&document).Error
 
@@ -306,7 +310,7 @@ func authorizePortalDocument(c *gin.Context, db *gorm.DB, identity viewerIdentit
 		return nil, false
 	}
 
-	if document.IsPrivate && identity.Role != models.RoleAdminAnper {
+	if document.IsPrivate && (requirePrivateShare || identity.Role != models.RoleAdminAnper) {
 		allowed, err := isDocumentSharedWith(db, document.Id, identity.UserID)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{

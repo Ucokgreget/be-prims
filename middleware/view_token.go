@@ -25,15 +25,16 @@ const (
 // diambil dari identitas saat sesi dibuat. Konsekuensinya perubahan nama/badge
 // baru terlihat setelah sesi berikutnya (maks. ViewTokenTTL).
 type ViewTokenClaims struct {
-	DocumentUUID string `json:"doc_uuid"`
-	UserID       uint   `json:"user_id"`
-	CompanyID    uint   `json:"id_company"`
-	Role         string `json:"role"`
-	BadgeNumber  string `json:"badge_number"`
-	UserName     string `json:"user_name"`
-	CompanyName  string `json:"company_name"`
-	ClientIP     string `json:"client_ip"`
-	Purpose      string `json:"purpose"`
+	DocumentUUID       string `json:"doc_uuid"`
+	UserID             uint   `json:"user_id"`
+	CompanyID          uint   `json:"id_company"`
+	CompanyAuthVersion int64  `json:"company_auth_version,omitempty"`
+	Role               string `json:"role"`
+	BadgeNumber        string `json:"badge_number"`
+	UserName           string `json:"user_name"`
+	CompanyName        string `json:"company_name"`
+	ClientIP           string `json:"client_ip"`
+	Purpose            string `json:"purpose"`
 	jwt.RegisteredClaims
 }
 

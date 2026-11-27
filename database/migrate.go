@@ -9,8 +9,6 @@ import (
 
 // MigrateFresh menghapus seluruh data; jangan panggil otomatis saat aplikasi mulai.
 func MigrateFresh(db *gorm.DB) error {
-	modelList := MigrateModels()
-
 	if err := db.Transaction(func(tx *gorm.DB) error {
 		log.Println("Dropping all tables...")
 		if err := tx.Migrator().DropTable(DropModels()...); err != nil {
@@ -18,7 +16,7 @@ func MigrateFresh(db *gorm.DB) error {
 		}
 
 		log.Println("Re-creating tables...")
-		if err := tx.AutoMigrate(modelList...); err != nil {
+		if err := AutoMigrate(tx); err != nil {
 			return fmt.Errorf("create tables: %w", err)
 		}
 

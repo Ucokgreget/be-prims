@@ -49,7 +49,9 @@ func main() {
 
 	// Satu recorder per proses; worker-nya hidup selama aplikasi berjalan.
 	accessLog := audit.NewRecorder(db, audit.Options{})
-	routes.SetupRouter(router, db, accessLog)
+	if err := routes.SetupRouter(router, db, accessLog); err != nil {
+		log.Fatal(err)
+	}
 
 	router.GET("/", func(c *gin.Context) {
 		c.JSON(200, gin.H{

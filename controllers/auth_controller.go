@@ -56,14 +56,6 @@ func Login(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		if user.Status != models.StatusActive {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-				"status":  "error",
-				"message": "Akun Anda tidak aktif. Silakan hubungi Admin Anak Perusahaan Anda.",
-			})
-			return
-		}
-
 		if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(input.Password)); err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"status":  "error",
@@ -72,13 +64,30 @@ func Login(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		var companyVersion int64
+		if user.Role != models.RoleSuperAdmin {
+			if user.Company == nil || user.Company.Status != models.StatusActive {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"status": "error", "message": middleware.InactiveCompanyMessage})
+				return
+			}
+			companyVersion = user.Company.AuthVersion
+		}
+		if user.Status != models.StatusActive {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"status":  "error",
+				"message": "Akun Anda tidak aktif. Silakan hubungi Admin Anak Perusahaan Anda.",
+			})
+			return
+		}
+
 		token, expiresIn, err := middleware.GenerateToken(middleware.AuthClaims{
-			UserID:       user.Id,
-			BadgeNumber:  user.BadgeNumber,
-			Name:         user.Name,
-			Role:         user.Role,
-			CompanyID:    user.CompanyID,
-			DepartmentID: user.DepartmentID,
+			UserID:             user.Id,
+			BadgeNumber:        user.BadgeNumber,
+			Name:               user.Name,
+			Role:               user.Role,
+			CompanyID:          user.CompanyID,
+			CompanyAuthVersion: companyVersion,
+			DepartmentID:       user.DepartmentID,
 		})
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{

@@ -46,6 +46,19 @@ func Init() error {
 	return nil
 }
 
+// TenantPrefix memakai ID database agar penggantian kode perusahaan tidak memindahkan berkas.
+func TenantPrefix(companyID uint) string {
+	return fmt.Sprintf("documents/tenants/%d/", companyID)
+}
+
+func CreateTenantFolder(ctx context.Context, companyID uint) error {
+	if client == nil {
+		return fmt.Errorf("storage belum diinisialisasi")
+	}
+	_, err := client.PutObject(ctx, bucket, TenantPrefix(companyID), strings.NewReader(""), 0, minio.PutObjectOptions{DisableMultipart: true})
+	return err
+}
+
 func Upload(ctx context.Context, key string, fh *multipart.FileHeader) error {
 	f, err := fh.Open()
 	if err != nil {

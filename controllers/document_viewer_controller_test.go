@@ -74,7 +74,7 @@ func newViewerTestDB(t *testing.T,
 			tx.RowsAffected = 1
 		case "companies":
 			if dest, ok := tx.Statement.Dest.(*models.Company); ok {
-				*dest = models.Company{Id: 11, Name: companyName}
+				*dest = models.Company{Id: 11, Name: companyName, Status: models.StatusActive}
 			}
 			tx.RowsAffected = 1
 		}

@@ -4,7 +4,9 @@ import (
 	"be-prims/middleware"
 	"be-prims/models"
 	"be-prims/storage"
-	"fmt"
+	"context"
+	"errors"
+	"log"
 	"net/http"
 	"time"
 
@@ -70,6 +72,31 @@ func GetDocumentByIdByCompany(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
+var (
+	errCompanyQuotaExceeded = errors.New("company storage quota exceeded")
+	errCompanyUploadSession = errors.New("company upload session revoked")
+)
+
+func checkUploadQuota(tx *gorm.DB, claims *middleware.AuthClaims, size int64) error {
+	// Serialize quota checks and attachment inserts for this company only.
+	var company models.Company
+	if err := tx.Raw(`SELECT status, auth_version, storage_quota_gb
+		FROM companies WITH (UPDLOCK, HOLDLOCK) WHERE id = ?`, claims.CompanyID).Take(&company).Error; err != nil {
+		return err
+	}
+	if company.Status != models.StatusActive || company.AuthVersion != claims.CompanyAuthVersion {
+		return errCompanyUploadSession
+	}
+	var used int64
+	if err := companyStorageBytes(tx).Where("d.company_id = ?", claims.CompanyID).Find(&used).Error; err != nil {
+		return err
+	}
+	if size > int64(company.StorageQuotaGB)*bytesPerGB-used {
+		return errCompanyQuotaExceeded
+	}
+	return nil
+}
+
 func CreateDocument(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims := middleware.Claims(c)
@@ -117,17 +144,13 @@ func CreateDocument(db *gorm.DB) gin.HandlerFunc {
 			CreatedAt:       now,
 		}
 
-		objectKey := fmt.Sprintf("documents/%s_%d.pdf", document.UUID, now.Unix())
-
-		if err := storage.Upload(c.Request.Context(), objectKey, input.Attachments); err != nil {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-				"status":  "error",
-				"message": "Gagal mengunggah file",
-			})
-			return
-		}
-
-		err := db.Transaction(func(tx *gorm.DB) error {
+		objectKey := storage.TenantPrefix(claims.CompanyID) + document.UUID + ".pdf"
+		var uploadErr error
+		ctx := c.Request.Context()
+		err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := checkUploadQuota(tx, claims, input.Attachments.Size); err != nil {
+				return err
+			}
 			if err := tx.Create(&document).Error; err != nil {
 				return err
 			}
@@ -176,14 +199,28 @@ func CreateDocument(db *gorm.DB) gin.HandlerFunc {
 				}
 			}
 
-			return nil
+			uploadCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			uploadErr = storage.Upload(uploadCtx, objectKey, input.Attachments)
+			return uploadErr
 		})
 		if err != nil {
-			storage.Delete(c.Request.Context(), []string{objectKey})
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-				"status":  "error",
-				"message": "Gagal menyimpan dokumen",
-			})
+			switch {
+			case errors.Is(err, errCompanyQuotaExceeded):
+				documentUploadError(c, http.StatusConflict, "storage_quota_exceeded", "Kuota penyimpanan perusahaan tidak mencukupi.", nil)
+			case errors.Is(err, errCompanyUploadSession):
+				documentUploadError(c, http.StatusUnauthorized, "session_revoked", "Sesi tidak berlaku. Silakan login kembali.", nil)
+			case uploadErr != nil:
+				// The transaction did not attempt COMMIT. An ambiguous PUT can be cleaned up safely.
+				cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+				defer cancel()
+				storage.Delete(cleanupCtx, []string{objectKey})
+				documentUploadError(c, http.StatusInternalServerError, "upload_failed", "Gagal mengunggah file", nil)
+			default:
+				// Do not delete an uploaded object if the outcome of COMMIT is unknown.
+				log.Printf("document: gagal menyimpan %s: %v", document.UUID, err)
+				documentUploadError(c, http.StatusInternalServerError, "save_failed", "Gagal menyimpan dokumen", nil)
+			}
 			return
 		}
 

@@ -8,10 +8,9 @@ import (
 	"log"
 	"mime"
 	"net/http"
-	"os"
-	"path"
 	"strings"
 	"time"
+	"unicode"
 
 	"be-prims/audit"
 	"be-prims/middleware"
@@ -29,7 +28,6 @@ import (
 // (document_controller.go); sisa ruang untuk overhead object lama.
 const maxDownloadBytes = 32 << 20
 
-const defaultPublicURL = "https://prims.pusri.co.id"
 const downloadNotFoundMessage = "Data tidak ditemukan"
 
 // downloadLogTimeout membatasi INSERT log DOWNLOAD agar DB yang lambat tidak
@@ -62,14 +60,13 @@ func DownloadDocumentPdf(db *gorm.DB) gin.HandlerFunc {
 
 		document, ok := authorizePortalDocument(c, db, viewerIdentity{
 			UserID:    claims.UserID,
-			Role:      claims.Role,
 			CompanyID: claims.CompanyID,
-		}, downloadNotFoundMessage)
+		}, downloadNotFoundMessage, true)
 		if !ok {
 			return
 		}
 
-		if !document.AllowDownload && claims.Role != models.RoleAdminAnper {
+		if !document.AllowDownload {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
 				"status":  "error",
 				"message": "Dokumen ini diatur sebagai 'Hanya Baca' (View Only) dan tidak diizinkan untuk diunduh.",
@@ -89,7 +86,7 @@ func DownloadDocumentPdf(db *gorm.DB) gin.HandlerFunc {
 		// Nama perusahaan dari DB (bukan klaim) agar perubahan nama anper
 		// langsung tercermin di stempel.
 		var company models.Company
-		if err := db.First(&company, claims.CompanyID).Error; err != nil {
+		if err := db.WithContext(c.Request.Context()).First(&company, document.CompanyID).Error; err != nil {
 			internalError(c)
 			return
 		}
@@ -112,7 +109,6 @@ func DownloadDocumentPdf(db *gorm.DB) gin.HandlerFunc {
 			Name:        claims.Name,
 			CompanyName: company.Name,
 			DownloadAt:  downloadedAt.In(wibZone),
-			GeneratedBy: publicURL(),
 		})
 		if err != nil {
 			fmt.Fprintf(gin.DefaultErrorWriter,
@@ -138,7 +134,7 @@ func DownloadDocumentPdf(db *gorm.DB) gin.HandlerFunc {
 
 		header := c.Writer.Header()
 		header.Set("Content-Type", "application/pdf")
-		header.Set("Content-Disposition", attachmentDisposition(document.Attachment.FileName))
+		header.Set("Content-Disposition", attachmentDisposition(document.Title))
 		header.Set("Content-Length", fmt.Sprintf("%d", stamped.Len()))
 		header.Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
 		header.Set("Pragma", "no-cache")
@@ -213,26 +209,19 @@ func internalError(c *gin.Context) {
 	})
 }
 
-// attachmentDisposition memakai nama file asli. mime.FormatMediaType meng-escape
-// tanda kutip dan memakai encoding RFC 2231 untuk nama non-ASCII, sehingga
-// nama file dari DB tidak bisa menyuntikkan parameter header.
-func attachmentDisposition(fileName string) string {
-	name := path.Base(strings.ReplaceAll(fileName, `\`, "/"))
-	if name == "" || name == "." || name == "/" {
-		name = "dokumen.pdf"
+// attachmentDisposition memakai judul, bukan nama lampiran di storage.
+func attachmentDisposition(title string) string {
+	name := strings.TrimSpace(strings.Map(func(r rune) rune {
+		if r == '/' || r == '\\' || unicode.IsControl(r) {
+			return '_'
+		}
+		return r
+	}, title))
+	if name == "" || name == "." || name == ".." {
+		name = "dokumen"
 	}
-	if !strings.EqualFold(path.Ext(name), ".pdf") {
+	if !strings.HasSuffix(strings.ToLower(name), ".pdf") {
 		name += ".pdf"
 	}
-	if v := mime.FormatMediaType("attachment", map[string]string{"filename": name}); v != "" {
-		return v
-	}
-	return `attachment; filename="dokumen.pdf"`
-}
-
-func publicURL() string {
-	if v := strings.TrimSpace(os.Getenv("PRIMS_PUBLIC_URL")); v != "" {
-		return v
-	}
-	return defaultPublicURL
+	return mime.FormatMediaType("attachment", map[string]string{"filename": name})
 }
