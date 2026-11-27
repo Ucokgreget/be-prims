@@ -5,6 +5,7 @@ import (
 	"be-prims/models"
 	"be-prims/request"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
@@ -96,6 +97,10 @@ func Login(db *gorm.DB) gin.HandlerFunc {
 			})
 			return
 		}
+
+		now := time.Now().UTC()
+		_ = db.Model(&models.User{}).Where("id = ?", user.Id).UpdateColumn("last_login_at", now).Error
+		user.LastLoginAt = &now
 
 		user.Password = ""
 		c.JSON(http.StatusOK, gin.H{
