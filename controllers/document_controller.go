@@ -64,9 +64,26 @@ func GetDocumentByIdByCompany(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		if document.Id == 0 {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{
+				"status":  "error",
+				"message": "Dokumen tidak ditemukan",
+			})
+			return
+		}
+
+		detailResp, err := buildDocumentDetailResponse(db, document)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+				"status":  "error",
+				"message": "Gagal memuat penerima akses dokumen",
+			})
+			return
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"status": "success",
-			"data":   document,
+			"data":   detailResp,
 		})
 
 	}

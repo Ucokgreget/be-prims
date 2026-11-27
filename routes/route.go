@@ -55,6 +55,7 @@ func SetupRouter(router *gin.Engine, db *gorm.DB, accessLog *audit.Recorder) err
 
 	superadmin.GET("/anper-admins", controllers.GetAllAdminAnper(db))
 	superadmin.POST("/anper-admins", controllers.CreateAdminAnper(db))
+	superadmin.PUT("/anper-admins/:id", controllers.UpdateAdminAnper(db))
 	superadmin.PATCH("/anper-admins/:id/reset-password", controllers.AdminAnperResetPassword(db))
 	superadmin.PATCH("/anper-admins/:id/status", controllers.UpdateAdminAnperStatus(db))
 
@@ -81,6 +82,7 @@ func SetupRouter(router *gin.Engine, db *gorm.DB, accessLog *audit.Recorder) err
 	admin.POST("/document", controllers.CreateDocument(db))
 	admin.GET("/document", controllers.GetAllDocumentByCompany(db))
 	admin.GET("/document/:id", controllers.GetDocumentByIdByCompany(db))
+	admin.PATCH("/document/:id", controllers.UpdateDocument(db))
 
 	// Endpoint tiket Manajemen Dokumen Admin (mockup hal. 6 & 7)
 	admin.GET("/documents", controllers.GetAllDocuments(db))

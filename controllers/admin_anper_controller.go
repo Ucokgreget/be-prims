@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -28,13 +29,20 @@ type adminAnperListItem struct {
 		Name string `json:"name"`
 		Code string `json:"code"`
 	} `json:"company"`
-	CreatedAt time.Time `json:"created_at"`
+	LastLoginAt *time.Time `json:"last_login_at"`
+	CreatedAt   time.Time  `json:"created_at"`
 }
 
 func GetAllAdminAnper(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+		if page < 1 {
+			page = 1
+		}
 		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+		if limit < 1 {
+			limit = 10
+		}
 		search := c.Query("search")
 		idComp := c.Query("company_id")
 		status := c.Query("status")
@@ -42,7 +50,7 @@ func GetAllAdminAnper(db *gorm.DB) gin.HandlerFunc {
 		tx := db.Model(&models.User{}).Where("role = ?", "ADMIN_ANPER")
 
 		if search != "" {
-			tx = tx.Where("name ILIKE ? OR badge_number ILIKE ?", "%"+search+"%", "%"+search+"%")
+			tx = tx.Where("LOWER(name) LIKE LOWER(?) OR LOWER(badge_number) LIKE LOWER(?)", "%"+search+"%", "%"+search+"%")
 		}
 
 		if idComp != "" {
@@ -71,6 +79,7 @@ func GetAllAdminAnper(db *gorm.DB) gin.HandlerFunc {
 			items[i].Jabatan = u.Jabatan
 			items[i].Role = u.Role
 			items[i].Status = u.Status
+			items[i].LastLoginAt = u.LastLoginAt
 			items[i].CreatedAt = u.CreatedAt
 			if u.Company != nil {
 				items[i].Company = &struct {
@@ -83,18 +92,18 @@ func GetAllAdminAnper(db *gorm.DB) gin.HandlerFunc {
 					u.Company.Code,
 				}
 			}
-
-			c.JSON(http.StatusOK, gin.H{
-				"status":  "success",
-				"message": "Data admin anper berhasil diambil",
-				"data":    items,
-				"pagination": gin.H{
-					"current_page": page,
-					"limit":        limit,
-					"total":        total,
-				},
-			})
 		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "success",
+			"message": "Data admin anper berhasil diambil",
+			"data":    items,
+			"pagination": gin.H{
+				"current_page": page,
+				"limit":        limit,
+				"total":        total,
+			},
+		})
 
 	}
 }
@@ -134,6 +143,7 @@ func CreateAdminAnper(db *gorm.DB) gin.HandlerFunc {
 				"status":  "error",
 				"message": "Gagal memproses password",
 			})
+			return
 		}
 
 		admin := models.User{
@@ -158,6 +168,7 @@ func CreateAdminAnper(db *gorm.DB) gin.HandlerFunc {
 				"status":  "error",
 				"message": "Gagal menyimpan data admin anper",
 			})
+			return
 		}
 
 		c.JSON(http.StatusOK, gin.H{
@@ -247,5 +258,112 @@ func AdminAnperResetPassword(db *gorm.DB) gin.HandlerFunc {
 		default:
 			c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Password Admin Anper berhasil direset"})
 		}
+	}
+}
+
+func UpdateAdminAnper(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id < 1 {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "ID Admin Anper tidak valid"})
+			return
+		}
+
+		var input request.UpdateAdminAnperRequest
+		if err := c.ShouldBindJSON(&input); err != nil || validate.Struct(&input) != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Data akun Admin Anper tidak valid"})
+			return
+		}
+
+		badge := strings.TrimSpace(input.BadgeNumber)
+		name := strings.TrimSpace(input.Name)
+		jabatan := strings.TrimSpace(input.Jabatan)
+		if badge == "" || name == "" || jabatan == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "No. Badge, Nama, dan Jabatan wajib diisi"})
+			return
+		}
+
+		var company models.Company
+		if err := db.WithContext(c.Request.Context()).
+			Where("id = ? AND status = ?", input.CompanyID, models.StatusActive).
+			First(&company).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"status": "error", "message": "Anak perusahaan tidak ditemukan atau tidak aktif"})
+			return
+		}
+
+		var dupCount int64
+		if err := db.WithContext(c.Request.Context()).Model(&models.User{}).
+			Where("company_id = ? AND badge_number = ? AND id <> ?", input.CompanyID, badge, id).
+			Count(&dupCount).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "Gagal memeriksa duplikasi No. Badge"})
+			return
+		}
+		if dupCount > 0 {
+			c.JSON(http.StatusConflict, gin.H{"status": "error", "message": "No. Badge sudah terdaftar di perusahaan ini"})
+			return
+		}
+
+		actorID := middleware.Claims(c).UserID
+		err = db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+			result := tx.Model(&models.User{}).
+				Where("id = ? AND role = ?", id, models.RoleAdminAnper).
+				Updates(map[string]any{
+					"company_id":   input.CompanyID,
+					"badge_number": badge,
+					"name":         name,
+					"jabatan":      jabatan,
+				})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				return gorm.ErrRecordNotFound
+			}
+			return tx.Create(&models.AuditLog{
+				ActorID: actorID,
+				Message: fmt.Sprintf("Superadmin memperbarui data Admin Anper ID %d", id),
+			}).Error
+		})
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"status": "error", "message": "Admin Anper tidak ditemukan"})
+			return
+		case err != nil && errors.Is(sqlserver.Dialector{}.Translate(err), gorm.ErrDuplicatedKey):
+			c.JSON(http.StatusConflict, gin.H{"status": "error", "message": "No. Badge sudah terdaftar di perusahaan ini"})
+			return
+		case err != nil:
+			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "Gagal memperbarui data Admin Anper"})
+			return
+		}
+
+		var updated models.User
+		_ = db.WithContext(c.Request.Context()).Preload("Company").First(&updated, id).Error
+		item := adminAnperListItem{
+			ID:          updated.Id,
+			BadgeNumber: updated.BadgeNumber,
+			Name:        updated.Name,
+			Jabatan:     updated.Jabatan,
+			Role:        updated.Role,
+			Status:      updated.Status,
+			LastLoginAt: updated.LastLoginAt,
+			CreatedAt:   updated.CreatedAt,
+		}
+		if updated.Company != nil {
+			item.Company = &struct {
+				ID   uint   `json:"id"`
+				Name string `json:"name"`
+				Code string `json:"code"`
+			}{
+				ID:   updated.Company.Id,
+				Name: updated.Company.Name,
+				Code: updated.Company.Code,
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "success",
+			"message": "Data akun Admin Anak Perusahaan berhasil diperbarui.",
+			"data":    item,
+		})
 	}
 }
